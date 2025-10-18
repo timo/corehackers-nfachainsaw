@@ -178,10 +178,8 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
     for %alt_nfas {
       say "$indent   $_.key(): " ~ recursive-hllize($_.value()).raku;
   
-      if $alt_nfa_meth.^name eq "NQPRoutine" {
-        my $alt_nfa := my_alt_nfa($match, $m, $_.key);
-        say $indent ~ "     instantiated: " ~ recursive-hllize($alt_nfa.states).raku;
-      }
+      my $alt_nfa := my_alt_nfa($match, $m, $_.key);
+      say $indent ~ "     instantiated: " ~ recursive-hllize($alt_nfa.states).raku;
     }
   }
   
@@ -191,17 +189,14 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
     }
   }
 
-  if $protoregex_nfa_meth.^name eq "NQPRoutine" {
-    my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
-    my $saved := $protoregex_nfa.save;
-    my @states = @$saved;
-    if @states > 2 && @states[0] != 0 && @states[1] != 0 {
-      say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
-    }
-  }
+   my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
+   my $saved := $protoregex_nfa.save;
+   my @states = @$saved;
+   if @states > 2 && @states[0] != 0 && @states[1] != 0 {
+     say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
+   }
 }
 
 for Perl6::Grammar.^methods.sort(*.name) {
   output-nfas-for-code($_.name, $_);
 }
-
