@@ -71,7 +71,7 @@ sub mydump(@states) {
         my int $s = 1;
         while $s < $send {
             say("$s:");
-            for @states[$s] -> $a, $v, $t {
+            for @states[$s].list -> $a, $v, $t {
                 my $act = nqp::bitand_i($a,0xff);
                 my $action = $ACTIONS[$act];
                 if $act == nqp::const::EDGE_CODEPOINT
@@ -103,14 +103,188 @@ sub mydump(@states) {
     }
 }
 
+sub ORIG_find_single_epsilon_states(@states) {
+  my @remap;
+  for 1..^@states {
+    my @state := @states[$_];
+    next unless @state.elems == 3;
+    my $to = @state[2];
+    my $act = @state[0];
+    if $act == nqp::const::EDGE_EPSILON {
+      @remap[$_] = $to;
+    }
+    elsif $act == nqp::const::EDGE_FATE && $to {
+      while @remap[$to] -> $mapped {
+        $to = $mapped;
+      }
+
+      my @tostate := @states[$to];
+      if @tostate > 3 && @tostate[0] == @tostate[1] == @state[1] {
+        @remap[$to] = $_;
+      }
+    }
+  }
+
+  say "remapping has @remap.grep(none(0)).elems() elements";
+
+  return @remap;
+}
+
+sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
+  my @incoming;
+  my $cleared = 0;
+  for 1..^@states {
+    if @remap[$_] {
+      @states[$_] = [] but "empty!";
+      $cleared++;
+      next;
+    }
+
+    my @state := @states[$_];
+    for @state <-> $a, $v, $to {
+      next unless $to;
+
+      my $newto = $to;
+      while @remap[$newto] -> $mapped {
+        $newto = $mapped;
+      }
+
+      if $newto != $to {
+        $to = $newto;
+      }
+
+      @incoming[$to]++;
+    }
+  }
+
+  say "cleared $cleared states";
+  return @incoming;
+}
+
+sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
+  my $removed = 0;
+  for 1..^@states -> $stateidx {
+    my @state := @states[$stateidx];
+    for @state <-> $act, $v, $to {
+      next unless $to;
+      my $tostate := @states[$to];
+      if $tostate.elems == 3 {
+        $act = $tostate[0];
+        $v = $tostate[1];
+        $to = $tostate[2];
+
+        try {
+          +$to;
+          CATCH {
+            say "WTF to value: $to in state $stateidx: @state.raku()";
+          }
+        }
+
+        if --@incoming[$to] == 0 {
+          @states[$to] = [] but "unreferenced!";
+          $removed++;
+        }
+      }
+    }
+  }
+  say "removed $removed states that were no longer referenced.";
+}
+
+sub ORIG_resequence_states_to_skip_empty(@states) {
+  my @remap;
+  my $newend = 0;
+  for 1..^@states {
+    @remap[$_] = (@states[$_].elems == 0 ?? 0 !! ++$newend);
+  }
+
+  say "remapping has @remap.grep(none(0)).elems() elements";
+  say "  new length of state array is $newend, was @states.elems()";
+
+  return @remap;
+}
+
+sub ORIG_move_states_for_resequence(@states, @remap) {
+  my @newstates;
+  @newstates[0] = @states[0];
+
+  my $dups_deleted = 0;
+
+  for 1..^@states {
+    my @state := @states[$_];
+    next if @state == 0;
+    my $newpos = @remap[$_];
+    if $newpos {
+      @newstates[$newpos] = @states[$_];
+
+      for @state <-> $r_act, $v, $to {
+        my $act = $r_act +& 0xff;
+        if $to {
+          $to = @remap[$to];
+        }
+      }
+
+      # the "small O(N^2) dup remover" from NFA.nqp
+      my int $e = 3;
+      my int $eend = +@state;
+      while $e < $eend {
+        my $act = @state[$e] +& 0xff;
+        if $act < nqp::const::EDGE_CHARLIST {
+          my int $f;
+          while $f < $e {
+            if $act == @state[$f]
+                && @state[$e + 2] == @state[$f + 2]
+                && @state[$e + 1] == @state[$f + 1] {
+              # delete the duplicate edge
+              @state.splice($e, 3, []);
+              $dups_deleted++;
+              $f = $e;
+              $e -= 3;
+              $eend -= 3;
+            }
+            $f += 3;
+          }
+        }
+        $e += 3;
+      }
+    }
+  }
+
+  if $dups_deleted {
+    say "deleted $dups_deleted duplicate edges";
+  }
+  @newstates;
+}
+
+class HLLNFA {
+  has @.states is rw;
+  method save { @.states }
+}
 
 sub my-optimize(Mu $nfa) {
-  # say "my optimization yay";
-  # say $nfa.states.raku;
-  if $nfa.states.elems() > 2 {
-    mydump($nfa.states);
-  }
-  return $nfa;
+  my @states = recursive-hllize($nfa.states);
+
+  if @states <= 2 { return HLLNFA.new(:@states) }
+
+  # dd :@states;
+
+  my @remap = ORIG_find_single_epsilon_states(@states);
+
+  # dd :@remap;
+
+  my @incoming = ORIG_clear_remapped_and_count_incoming(@states, @remap);
+
+  # dd :@states, :@incoming;
+
+  ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming);
+
+  # dd :@states;
+
+  my @resequence = ORIG_resequence_states_to_skip_empty(@states);
+  # dd :@resequence;
+  
+  @states = ORIG_move_states_for_resequence(@states, @resequence);
+
+  return HLLNFA.new(:@states);
 }
 
 sub my_alt_nfa(Mu $self, Mu $regex, str $name) {
@@ -200,3 +374,4 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
 for Perl6::Grammar.^methods.sort(*.name) {
   output-nfas-for-code($_.name, $_);
 }
+
