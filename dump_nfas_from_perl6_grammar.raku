@@ -17,6 +17,8 @@ sub recursive-hllize(Mu $in) {
   }
 }
 
+my $DEBUG_VERBOSE = 0;
+
 my $match = Perl6::Grammar.new;
 
 my Mu $protoregex_meth := $match.^find_method("!protoregex_table");
@@ -48,14 +50,30 @@ my $ACTIONS := [
   'CODEPOINT_I_LL',
   'CODEPOINT_M',
   'CODEPOINT_M_NEG',
-  'EDGE_CODEPOINT_M_LL',
-  'EDGE_CODEPOINT_IM',
-  'EDGE_CODEPOINT_IM_NEG',
-  'EDGE_CODEPOINT_IM_LL',
-  'EDGE_CHARRANGE_M',
-  'EDGE_CHARRANGE_M_NEG'
+  'CODEPOINT_M_LL',
+  'CODEPOINT_IM',
+  'CODEPOINT_IM_NEG',
+  'CODEPOINT_IM_LL',
+  'CHARRANGE_M',
+  'CHARRANGE_M_NEG'
 ];
 
+my %cclass_names = (
+    nqp::const::CCLASS_ANY => "ANY",
+    nqp::const::CCLASS_UPPERCASE => "UPPERCASE",
+    nqp::const::CCLASS_LOWERCASE => "LOWERCASE",
+    nqp::const::CCLASS_ALPHABETIC => "ALPHABETIC",
+    nqp::const::CCLASS_NUMERIC => "NUMERIC",
+    nqp::const::CCLASS_HEXADECIMAL => "HEXADECIMAL",
+    nqp::const::CCLASS_WHITESPACE => "WHITESPACE",
+    nqp::const::CCLASS_PRINTING => "PRINTING",
+    nqp::const::CCLASS_BLANK => "BLANK",
+    nqp::const::CCLASS_CONTROL => "CONTROL",
+    nqp::const::CCLASS_PUNCTUATION => "PUNCTUATION",
+    nqp::const::CCLASS_ALPHANUMERIC => "ALPHANUMERIC",
+    nqp::const::CCLASS_NEWLINE => "NEWLINE",
+    nqp::const::CCLASS_WORD => "WORD",
+);
 
 
 sub mydump(@states) {
@@ -93,6 +111,9 @@ sub mydump(@states) {
                   && nqp::istype($v,str) {
                     say("\t$t $action " ~ $v);
                 }
+                elsif $act == nqp::const::EDGE_CHARRANGE | nqp::const::EDGE_CHARRANGE_M | nqp::const::EDGE_CHARRANGE_NEG | nqp::const::EDGE_CHARRANGE_M_NEG {
+                    say("\t$t $action ", $v);
+                }
                 else {
                     say("\t$t $action");
                 }
@@ -128,9 +149,11 @@ sub ORIG_find_single_epsilon_states(@states) {
     }
   }
 
-  for 1..^@states {
-    if @remap[$_] {
-      say("\t$_ -> @remap[$_]");
+  if $DEBUG_VERBOSE > 1 {
+    for 1..^@states {
+      if @remap[$_] {
+        say("\t$_ -> @remap[$_]");
+      }
     }
   }
 
@@ -182,7 +205,9 @@ sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
     }
   }
 
-  mydump(@states);
+  if $DEBUG_VERBOSE > 2 {
+    mydump(@states);
+  }
 
   say("\n\nnow @states.elems() states before stealing singleton edges\n");
 
@@ -233,9 +258,7 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
       else {
         my $v = @state[$e - 1];
         say "      $ACTIONS[$act]!";
-        @newedges.push(@state[$e - 2]);
-        @newedges.push($v);
-        @newedges.push($to);
+        @newedges.push([@state[$e - 2], $v, $to]);
       }
 
       $e += 3;
@@ -246,6 +269,9 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
     #  @states[$item] := [];
     #}
   }
+
+  @newedges .= sort(*.[1]);
+  @newedges = @newedges.map(*.Slip).list;
 
   @states[1] = @newedges;
   
@@ -267,7 +293,9 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
         my $tostate := @states[$to];
         if $tostate.elems == 3 {
 
-          say "  $stateidx stealing $to";
+          if $DEBUG_VERBOSE > 1 {
+            say "  $stateidx stealing $to";
+          }
 
           @state[$e - 2] = $tostate[0];
           @state[$e - 1] = $tostate[1];
@@ -298,10 +326,14 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
 
   say("\n\nnow @states.elems() states\n");
 
-  mydump(@states);
-  for 1..^@states {
-    if @remap[$_] {
-      say("\t$_ -> @remap[$_]");
+  if $DEBUG_VERBOSE > 1 {
+    if $DEBUG_VERBOSE > 2 {
+      mydump(@states);
+    }
+    for 1..^@states {
+        if @remap[$_] {
+        say("\t$_ -> @remap[$_]");
+        }
     }
   }
 
@@ -337,7 +369,9 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
 
         if $to {
             @state[$e] = @remap[$to];
-            say "In $s -> $newpos remapping $ACTIONS[$act] $to -> @remap[$to]";
+            if $DEBUG_VERBOSE > 1 {
+              say "In $s -> $newpos remapping $ACTIONS[$act] $to -> @remap[$to]";
+            }
         }
         $e += 3;
       }
@@ -389,14 +423,21 @@ sub my-optimize(Mu $nfa) {
 
   if @states <= 2 { return HLLNFA.new(:@states) }
 
-  say "BEGIN OF OPTIMIZATION";
+  if $DEBUG_VERBOSE > 0 {
+    say "BEGIN OF OPTIMIZATION";
+  }
 
-  #dd :@states;
-  mydump(@states);
+  if $DEBUG_VERBOSE > 2 {
+    #dd :@states;
+    mydump(@states);
+  }
 
   my @remap = ORIG_find_single_epsilon_states(@states);
 
-  mydump(@states);
+  if $DEBUG_VERBOSE > 2 {
+    #dd :@states;
+    mydump(@states);
+  }
 
   #dd :@remap;
 
@@ -406,6 +447,9 @@ sub my-optimize(Mu $nfa) {
   #dd :@states;
 
   ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming);
+
+
+  CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming);
 
   #dd :@states;
 
@@ -418,11 +462,14 @@ sub my-optimize(Mu $nfa) {
 
   @states = ORIG_move_states_for_resequence(@states, @resequence);
 
-  mydump(@states);
+  if $DEBUG_VERBOSE > 2 {
+    #dd :@states;
+    mydump(@states);
+  }
 
-  #CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming);
-
-  say "END OF OPTIMIZATION";
+  if $DEBUG_VERBOSE > 0 {
+    say "END OF OPTIMIZATION";
+  }
 
   return HLLNFA.new(:@states);
 }
@@ -482,6 +529,7 @@ sub my_protoregex_nfa(Mu $self, $name, Mu $nfa_class = $modified_nfa) {
     $nfa.optimize
 }
 
+my @all-nfas;
 
 sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
   say $indent ~ " name: " ~ $_ with $name;
@@ -494,6 +542,7 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
   
       my $alt_nfa := my_alt_nfa($match, $m, $_.key);
       my @states := recursive-hllize($alt_nfa.states);
+      @all-nfas.push($name => @states);
       say $indent ~ "     instantiated: " ~ @states.raku;
 
       if @states > 2 {
@@ -527,13 +576,462 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
   my @states = @$saved;
 
   if @states > 2 && @states[0] != 0 && @states[1] != 0 {
+    @all-nfas.push(($name ~ " protoregex") => @states);
     say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
   }
 }
 
+sub is-edge-negated($masked-act) {
+    return so $masked-act == any(
+        nqp::const::EDGE_CODEPOINT_NEG,
+        nqp::const::EDGE_CHARCLASS_NEG,
+        nqp::const::EDGE_CHARLIST_NEG,
+        nqp::const::EDGE_CODEPOINT_I_NEG,
+        nqp::const::EDGE_CHARRANGE_NEG,
+        nqp::const::EDGE_CODEPOINT_M_NEG,
+        nqp::const::EDGE_CODEPOINT_IM_NEG,
+        nqp::const::EDGE_CHARRANGE_M_NEG);
+}
+
+sub does-edge-match($edge, $character) {
+    my $masked_act = $edge[0] +& 0xff;
+    my $negated = is-edge-negated($masked_act);
+    my $actname = $ACTIONS[$masked_act];
+    my $v = $edge[1];
+    # say "  does $edge.raku() ($masked_act == $actname) match $character.raku()? (negated? $negated)";
+    my $result = do given $masked_act {
+        when nqp::const::EDGE_FATE {
+            # say "    fate edge";
+            True
+        }
+        when nqp::const::EDGE_EPSILON {
+            # say "    epsilon edge";
+            True
+        }
+        when nqp::const::EDGE_CODEPOINT | nqp::const::EDGE_CODEPOINT_NEG | nqp::const::EDGE_CODEPOINT_LL {
+            # say "    codepoint edge";
+            $character eq $v;
+        }
+        when nqp::const::EDGE_CHARCLASS | nqp::const::EDGE_CHARCLASS_NEG {
+            # say "    cclass edge";
+            nqp::iscclass($v, $character, 0)
+        }
+        when nqp::const::EDGE_CHARLIST | nqp::const::EDGE_CHARLIST_NEG {
+            # say "    does $v.raku() contain $character.raku()? ", $v.contains($character);
+            $v.contains($character);
+        }
+        when nqp::const::EDGE_SUBRULE {
+            die "should never encounter a SUBRULE edge for matching";
+        }
+        when nqp::const::EDGE_CODEPOINT_I | nqp::const::EDGE_CODEPOINT_I_NEG | nqp::const::EDGE_CODEPOINT_I_LL {
+            $character ~~ /:i $v /;
+        }
+        when nqp::const::EDGE_GENERIC_VAR {
+            die "should never encounter a GENERIC_VAR edge for matching";
+        }
+        when nqp::const::EDGE_CHARRANGE | nqp::const::EDGE_CHARRANGE_NEG {
+            $character ~~ $v[0]..$v[1];
+        }
+        when nqp::const::EDGE_CODEPOINT_M | nqp::const::EDGE_CODEPOINT_M_NEG {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CODEPOINT_M_LL {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CODEPOINT_IM | nqp::const::EDGE_CODEPOINT_IM_NEG {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CODEPOINT_IM_LL {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CHARRANGE_M | nqp::const::EDGE_CHARRANGE_M_NEG {
+            die "action $actname NYI";
+        }
+        default {
+            die "didn't have a match for this action??";
+        }
+    }
+    #say "      match result is $result";
+    if $negated { $result = not $result }
+    return $result;
+}
+
+class CClass is rw {
+    has $.cclass_id;
+    has $.negated;
+}
+class CRange is rw {
+    has $.lower;
+    has $.upper;
+    has $.negated;
+}
+# also covers single characters because why not
+class CharList is rw {
+    has $.chars;
+    has $.negated;
+}
+class Anything is rw {
+    has $.negated;
+}
+
+sub generate-possible-matching-characters($edge) {
+    my $masked_act = $edge[0] +& 0xff;
+    my $negated = is-edge-negated($masked_act);
+    my $actname = $ACTIONS[$masked_act];
+    my $v = $edge[1];
+    # say "  does $edge.raku() ($masked_act == $actname) match $character.raku()? (negated? $negated)";
+    my $result = do given $masked_act {
+        when nqp::const::EDGE_FATE {
+            Anything.new()
+        }
+        when nqp::const::EDGE_EPSILON {
+            Anything.new()
+        }
+        when nqp::const::EDGE_CODEPOINT | nqp::const::EDGE_CODEPOINT_NEG | nqp::const::EDGE_CODEPOINT_LL | nqp::const::EDGE_CHARLIST | nqp::const::EDGE_CHARLIST_NEG {
+            CharList.new(chars => ($v ~~ Int ?? chr($v) !! $v));
+        }
+        when nqp::const::EDGE_CHARCLASS | nqp::const::EDGE_CHARCLASS_NEG {
+            # say "    cclass edge";
+            CClass.new(cclass_id => $v);
+        }
+        when nqp::const::EDGE_SUBRULE {
+            die "should never encounter a SUBRULE edge for char generation";
+        }
+        when nqp::const::EDGE_CODEPOINT_I | nqp::const::EDGE_CODEPOINT_I_NEG | nqp::const::EDGE_CODEPOINT_I_LL {
+            CharList.new(chars => ($v.lc, $v.uc, $v.fc).Set.list.join(""));
+        }
+        when nqp::const::EDGE_GENERIC_VAR {
+            die "should never encounter a GENERIC_VAR edge for char generation";
+        }
+        when nqp::const::EDGE_CHARRANGE | nqp::const::EDGE_CHARRANGE_NEG {
+            CRange.new(lower => $v[0], upper => $v[1]);
+        }
+        when nqp::const::EDGE_CODEPOINT_M | nqp::const::EDGE_CODEPOINT_M_NEG {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CODEPOINT_M_LL {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CODEPOINT_IM | nqp::const::EDGE_CODEPOINT_IM_NEG {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CODEPOINT_IM_LL {
+            die "action $actname NYI";
+        }
+        when nqp::const::EDGE_CHARRANGE_M | nqp::const::EDGE_CHARRANGE_M_NEG {
+            die "action $actname NYI";
+        }
+        default {
+            die "didn't have a match for this action??";
+        }
+    }
+    $result.negated = $negated;
+    return $result;
+}
+
+sub split-apart(%splitpoints, $new-edge) {
+    my $new = generate-possible-matching-characters($new-edge);
+
+    if $new ~~ CRange {
+        %splitpoints{$new.lower} = 1;
+        %splitpoints{$new.upper} = 1;
+    }
+    elsif $new ~~ CharList {
+        my @chars = $new.chars.comb.sort;
+        # remove entries that have both their predecessor and their successor (in unicode codepoint numbers) in the input as well.
+        # TODO this makes no sense with synthetic graphemes, so filter those out.
+        my @changepoints = $new.chars.comb.map({
+            ($new.chars.contains(chr(ord($_) - 1))
+            && $new.chars.contains(chr(ord($_) + 1)))
+                ?? Empty !! $_ });
+
+        %splitpoints{$_} = 1 for @changepoints;
+    }
+    elsif $new ~~ CClass {
+        note "don't know yet how to make splitpoints for char class %cclass_names{$new.cclass_id}";
+    }
+    else {
+        note "couldn't handle $new.raku() :(";
+    }
+}
+
+class NFASimState { ... }
+
+class EdgeId is rw {
+    has int $.state-idx;
+    has int $.edge-idx;
+    has Bool $.epsilon = False;
+
+    method gist {
+        "St $.state-idx $($.epsilon ?? "EE" !! "E") $.edge-idx"
+    }
+}
+
+class SimStateInfo is rw {
+    #= Index in the states array (starts at 1, because 0 holds the fates)
+    has int $.state-idx;
+    #= Edges that matched in the previous state to bring us to this state
+    has EdgeId @.preds;
+    #= NFASimState that created this state
+    has NFASimState $.created-by;
+
+    method gist {
+        "State($.state-idx from @.preds.gist())";
+    }
+}
+
+class NFASimState {
+    has @.states is rw;
+    has SimStateInfo @.active is rw;
+    has str $.text   is rw;
+    has int $.offset is rw;
+    has $.parent-state is rw;
+
+    method gist {
+        return {
+            states => {
+                fates => @.states[0],
+                states => +@.states - 1,
+            },
+            :@.active,
+            :$.text,
+            :$.offset,
+            parent-state => $.parent-state ?? {
+                offset => $.parent-state.offset
+            } !! Any
+        }.gist;
+    }
+
+    method fork($character) {
+        NFASimState.new(
+            :@.states, :@.active, text => $.text ~ $character, :parent-state(self), :$.offset
+        );
+    }
+
+    multi method start(NFASimState:D: @!states, :$!text = "", :$!offset = 0) {
+        @.active = Empty;
+        @.active.push(SimStateInfo.new(
+            state-idx => 1,
+            created-by => self
+        ));
+        return self;
+    }
+    multi method start(NFASimState:U: @states, :$text = "", :$offset = 0) {
+        return NFASimState.new().start(@states, :$text, :$offset);
+    }
+
+    method matching-edges(@edges, $character) {
+        my @result;
+
+        # say "get matching edges from ", @edges.rotor(3).list.raku;
+        for @edges.rotor(3).pairs {
+            if does-edge-match($_.value, $character) {
+                # say "matched $_.raku() against $character.raku()";
+                @result.push($_);
+            }
+            else {
+                # say "NEGATIVE MATCH: $_.raku() against $character.raku()";
+            }
+        }
+
+        @result;
+    }
+
+    method all-active-edges() {
+        my @active-stack = @.active;
+        my %seen;
+        my @all-edges;
+        while @active-stack {
+            my $curst = @active-stack.pop;
+            my @edges := @.states[$curst.state-idx];
+            without %seen{$curst.state-idx} {
+                for @edges.rotor(3).pairs {
+                    if .value.[0] == nqp::const::EDGE_EPSILON {
+                        my $edge-id = EdgeId.new(
+                            state-idx => $curst.state-idx,
+                            edge-idx  => $_.key,
+                            epsilon => True,
+                        );
+
+                        @active-stack.push(SimStateInfo.new(
+                            state-idx => .value[2],
+                            preds => (my EdgeId @ = $edge-id),
+                            created-by => self,
+                        ));
+                    }
+                    else {
+                        @all-edges.push($_);
+                    }
+                }
+            }
+            %seen{$curst.state-idx} = 1;
+        }
+        @all-edges;
+    }
+
+    method step(:$quiet = False) {
+        # get character in question
+        my $char = $.text.substr($.offset, 1);
+        my $nextst = NFASimState.new(
+            :@.states, :$.text, offset => $.offset + 1, parent-state => self
+        );
+        my @active-stack = @.active;
+        say $char.raku, " with ", +@active-stack, " states" unless $quiet;
+        my %seen-states;
+        my %seen-next-states;
+        while @active-stack {
+            my $curst = @active-stack.pop;
+            my @edges := @.states[$curst.state-idx];
+            print("    ", $curst.state-idx, "    ", +@edges, "  ") unless $quiet;
+            for @.matching-edges(@edges, $char) -> $ep {
+                # TODO implement fate with "to"
+                # TODO implement fates and longestlit in general
+                my $to = $ep.value[2];
+
+                if $to == 0 {
+                    next;
+                }
+
+                my $epsilon = $ep.value[0] == nqp::const::EDGE_EPSILON;
+                my $edge-id = EdgeId.new(
+                    state-idx => $curst.state-idx,
+                    edge-idx  => $ep.key,
+                    :$epsilon
+                );
+                print($++ ?? "," !! "", $ep.key, " ", $ACTIONS[$ep.value[0]], "->", $to) unless $quiet;
+
+                # epsilon edges put a new state in our active stack that we will
+                # visit real soon, while all other edges are put into the active
+                # states array of the next state.
+                my $seen-hash := $epsilon ?? %seen-states !! %seen-next-states;
+                my $states-array := $epsilon ?? @active-stack !! $nextst.active;
+
+                # Epsilons go on the active stack
+                with $seen-hash{$to} -> $seen {
+                    $seen.preds.push($edge-id);
+                }
+                else {
+                    $states-array.push(
+                        my $new-state = SimStateInfo.new(
+                            state-idx => $to,
+                            preds => (my EdgeId @ = $edge-id),
+                            created-by => self,
+                        )
+                    );
+                    $seen-hash{$to} = $new-state;
+                }
+            }
+            say("") unless $quiet;
+        }
+
+        return $nextst;
+    }
+}
+
 for Perl6::Grammar.^methods.sort(*.name)
-#  .grep(*.name eq "termish")
+  .grep(*.name eq "termish")
 {
   output-nfas-for-code($_.name, $_);
 }
 
+say "all NFAs:";
+say ("  " ~ .key) for @all-nfas;
+
+my $simstate = NFASimState.start(@all-nfas[0].value, text => '');
+
+loop {
+    my @possible-edges = $simstate.all-active-edges();
+    # say "possible edges: ", @possible-edges;
+    my %splitpoints;
+    @possible-edges.map({ split-apart %splitpoints, $_.value });
+    my @spk = %splitpoints.keys.sort;
+    
+    my @cclasses = @possible-edges
+        .map(*.value)
+        .map(&generate-possible-matching-characters)
+        .grep(CClass)
+        .map(*.cclass_id)
+        .unique
+        .map({ %cclass_names{$_} });
+
+    say "current state: ", $simstate.gist;
+
+    say "";
+    say "Current text:";
+    say "  ", $simstate.text.raku;
+    say "";
+
+    my $should-step = True;
+
+    if $simstate.text.chars <= $simstate.offset || $simstate.active == 0 {
+        my @inputs;
+        if not @spk || $simstate.active == 0 {
+            say "";
+            say "The NFA has finished running.";
+        }
+        elsif @spk {
+            say "";
+            say "Possible theoretical inputs:";
+
+            my %futures;
+
+            for chr(ord(@spk[0]) - 1), |@spk {
+                my $forked = $simstate.fork($_).step(:quiet);
+                #say +@inputs, ": ", $_.raku, " → ", $forked.active.map(*.state-idx);
+                %futures{$forked.active.map(*.state-idx).sort.join(",")}.push($_);
+                #@inputs.push($_);
+            }
+
+            for %futures.pairs.sort {
+                say +@inputs, ": ", .key;
+                say "    " ~ .value.map(*.raku).join(" ");
+                @inputs.push(.value[0]);
+            }
+
+            say " ... also valid: stuff from cclass $_" for @cclasses;
+
+            say "c: Enter your own";
+        }
+
+        say "b: go back one";
+        say "s: go back to the start";
+        say "q: stop";
+
+        my $choice = prompt "Make your choice: ";
+        last without $choice;
+        if $choice eq "c" {
+            my $char = prompt "Which character(s)? ";
+            next without $char;
+            $simstate .= fork($char);
+            say " ==> advancing text: $simstate.text().raku()";
+        }
+        elsif $choice == any(@inputs.keys) {
+            $simstate .= fork(@inputs[$choice]);
+        }
+        elsif $choice eq "b" {
+            $simstate = $simstate.parent-state.parent-state;
+            $should-step = False;
+            say " ==> Went back one step, text is now $simstate.text().raku()";
+        }
+        elsif $choice eq "s" {
+            $simstate = NFASimState.start($simstate.states);
+            $should-step = False;
+            say " ==> Returned to start";
+        }
+        elsif $choice eq "q" {
+            say " ==> Quitting ...";
+            say "";
+            say "Text so far: $simstate.text.raku()";
+            last;
+        }
+        else {
+            say "Did not recognize input $choice.raku()";
+        }
+    }
+
+    if $should-step {
+        say "... running step ...";
+        $simstate .= step;
+        say "";
+    }
+}
