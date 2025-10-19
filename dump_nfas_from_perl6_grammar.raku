@@ -76,7 +76,7 @@ sub mydump(@states) {
                 my $action = $ACTIONS[$act];
                 if $act == nqp::const::EDGE_CODEPOINT
                   || $act == nqp::const::EDGE_CODEPOINT_LL {
-                    say("\t$t $action " ~ nqp::chr($v).raku);
+                    say("\t$t $action " ~ nqp::chr($v));
                 }
                 elsif $act == nqp::const::EDGE_FATE {
                     say("\t$t $action " ~ $v.raku);
@@ -87,11 +87,11 @@ sub mydump(@states) {
                 }
                 elsif $act == nqp::const::EDGE_CHARLIST
                   || $act == nqp::const::EDGE_CHARLIST_NEG {
-                    say("\t$t $action " ~ $v.raku);
+                    say("\t$t $action " ~ $v);
                 }
                 elsif $act == nqp::const::EDGE_SUBRULE
                   && nqp::istype($v,str) {
-                    say("\t$t $action " ~ $v.raku);
+                    say("\t$t $action " ~ $v);
                 }
                 else {
                     say("\t$t $action");
@@ -105,27 +105,38 @@ sub mydump(@states) {
 
 sub ORIG_find_single_epsilon_states(@states) {
   my @remap;
-  for 1..^@states {
-    my @state := @states[$_];
+  for 1..^@states -> $stateidx {
+    my @state := @states[$stateidx];
     next unless @state.elems == 3;
     my $to = @state[2];
     my $act = @state[0];
     if $act == nqp::const::EDGE_EPSILON {
-      @remap[$_] = $to;
+      @remap[$stateidx] = $to;
+      #say "  remap for $stateidx is now $to";
     }
     elsif $act == nqp::const::EDGE_FATE && $to {
-      while @remap[$to] -> $mapped {
-        $to = $mapped;
+      while @remap[$to] {
+        #say "  chasing fate 'to' from $to to @remap[$to]";
+        $to = @remap[$to];
       }
 
       my @tostate := @states[$to];
-      if @tostate > 3 && @tostate[0] == @tostate[1] == @state[1] {
-        @remap[$to] = $_;
+      if @tostate >= 0 && @tostate[0] == nqp::const::EDGE_FATE && @tostate[1] == @state[1] {
+        #say "  -> remap for $stateidx is now $to";
+        @remap[$stateidx] = $to;
       }
     }
   }
 
-  say (now - ENTER now), "remapping has @remap.grep(none(0)).elems() elements";
+  for 1..^@states {
+    if @remap[$_] {
+      say("\t$_ -> @remap[$_]");
+    }
+  }
+
+  say("\n\nnow @states.elems() states before unlinking empties\n");
+
+  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements";
 
   return @remap;
 }
@@ -136,60 +147,146 @@ sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
   my $chased = 0;
   for 1..^@states {
     if @remap[$_] {
+      #say "clearing state $_, used to be ", @states[$_];
       @states[$_] = [];
       $cleared++;
       next;
     }
 
+    #say "updating state $_, used to be ", @states[$_];
+
     my @state := @states[$_];
     #if @state > 3 {
     #  note "state $_/@states.elems() has @state.elems() elements";
     #}
-    my int $e = 0;
+    my int $e = 2;
     my int $eend = +@state;
     while $e < $eend {
-      my $to = @state[$e + 2];
+      my $to = @state[$e];
+      my $was = $to;
       if $to {
         my $newto = $to;
         while @remap[$newto] -> $mapped {
           $chased++;
           $newto = $mapped;
+          say "  chasing $was to $newto";
         }
 
         if $newto != $to {
-          @state[$e + 2] = $newto;
+          @state[$e] = $newto;
         }
 
-        @incoming[$to]++;
+        @incoming[$newto]++;
       }
       $e += 3;
     }
   }
 
-  say (now - ENTER now), "cleared $cleared states, followed the mapping $chased steps";
+  mydump(@states);
+
+  say("\n\nnow @states.elems() states before stealing singleton edges\n");
+
+  say (now - ENTER now), "  cleared $cleared states, followed the mapping $chased steps";
   return @incoming;
+}
+
+
+sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming) {
+  my $removed = 0;
+  my int @work = 1;
+  my int @seen;
+
+  my @newedges;
+  my @oldedges = @states[1].list;
+
+  say "start state edges: ", @oldedges.raku;
+
+  while @work {
+    my $item = @work.pop;
+
+    next if @seen[$item]++;
+
+    say "    considering state $item for edge stealing;";
+
+    my @state := @states[$item];
+    say "      states: @state[]";
+
+    # don't reduce incoming count for start state, that would be silly.
+    #my $was_removed = False;
+    #if $item != 1 {
+    #  if --@incoming[$item] == 0 {
+    #    $removed++;
+    #    $was_removed = True;
+    #  }
+    #}
+
+    my int $e = 2;
+    my int $eend = +@state;
+    while $e < $eend {
+      my $act = @state[$e - 2] +& 0xff;
+      my $to = @state[$e];
+
+      if $act == nqp::const::EDGE_EPSILON {
+        say "      epsilon!";
+        @work.push($to);
+      }
+      else {
+        my $v = @state[$e - 1];
+        say "      $ACTIONS[$act]!";
+        @newedges.push(@state[$e - 2]);
+        @newedges.push($v);
+        @newedges.push($to);
+      }
+
+      $e += 3;
+    }
+
+    #if $was_removed {
+    #  say "clearing out state $item";
+    #  @states[$item] := [];
+    #}
+  }
+
+  @states[1] = @newedges;
+  
+  say (now - ENTER now), "  removed $removed states after stealing edges from stuff reachable with epsilon from start state.";
+  say "    @seen.grep(* != 0).elems() states in the epsilon-closure of state 1:  @seen.pairs().grep(*.value != 0).map(*.key)";
+  say "    state 1 used to have @oldedges.elems() elements, now has @newedges.elems()";
 }
 
 sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
   my $removed = 0;
   for 1..^@states -> $stateidx {
     my @state := @states[$stateidx];
-    for @state <-> $act, $v, $to {
-      next unless $to;
-      my $tostate := @states[$to];
-      if $tostate.elems == 3 {
-        $act = $tostate[0];
-        $v = $tostate[1];
-        $to = $tostate[2];
+    my int $eend = +@state;
+    my int $e = 2;
+    while $e < $eend {
+      my $to = @state[$e];
+      my $act = @state[$e - 2];
+      if $act == nqp::const::EDGE_EPSILON && $to {
+        my $tostate := @states[$to];
+        if $tostate.elems == 3 {
 
-        if --@incoming[$to] == 0 {
-          @states[$to] = [];
-          $removed++;
+          say "  $stateidx stealing $to";
+
+          @state[$e - 2] = $tostate[0];
+          @state[$e - 1] = $tostate[1];
+          @state[$e    ] = $tostate[2];
+  
+          if --@incoming[$to] == 0 {
+            say "    clearing out unused state $to";
+            @states[$to] = [];
+            $removed++;
+          }
         }
       }
+      $e += 3;
     }
   }
-  say (now - ENTER now), "removed $removed states that were no longer referenced.";
+
+  say("\n\nnow @states.elems() states before calculating remap\n");
+
+  say (now - ENTER now), "  removed $removed states that were no longer referenced.";
 }
 
 sub ORIG_resequence_states_to_skip_empty(@states) {
@@ -199,7 +296,18 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
     @remap[$_] = (@states[$_].elems == 0 ?? 0 !! ++$newend);
   }
 
-  say (now - ENTER now), "remapping has @remap.grep(none(0)).elems() elements";
+  say("\n\nnow @states.elems() states\n");
+
+  mydump(@states);
+  for 1..^@states {
+    if @remap[$_] {
+      say("\t$_ -> @remap[$_]");
+    }
+  }
+
+  say("\n\nnow @states.elems() states mapping to $newend states\n");
+
+  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements";
   say "  new length of state array is $newend, was @states.elems()";
 
   return @remap;
@@ -212,22 +320,30 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
   my $dups_deleted = 0;
 
   for 1..^@states {
+    my $s = $_;
     my @state := @states[$_];
+    say "Skipping $_" if @state == 0;
     next if @state == 0;
     my $newpos = @remap[$_];
-    if $newpos {
-      @newstates[$newpos] = @states[$_];
 
-      for @state <-> $r_act, $v, $to {
-        my $act = $r_act +& 0xff;
+    if $newpos {
+      say "state $newpos is a clone of state $_";
+
+      my int $eend = +@state;
+      my int $e = 2;
+      while $e < $eend {
+        my $to = @state[$e];
+        my $act = @state[$e - 2] +& 0xff;
+
         if $to {
-          $to = @remap[$to];
+            @state[$e] = @remap[$to];
+            say "In $s -> $newpos remapping $ACTIONS[$act] $to -> @remap[$to]";
         }
+        $e += 3;
       }
 
       # the "small O(N^2) dup remover" from NFA.nqp
-      my int $e = 3;
-      my int $eend = +@state;
+      $e = 3;
       while $e < $eend {
         my $act = @state[$e] +& 0xff;
         if $act < nqp::const::EDGE_CHARLIST {
@@ -237,6 +353,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
                 && @state[$e + 2] == @state[$f + 2]
                 && @state[$e + 1] == @state[$f + 1] {
               # delete the duplicate edge
+              say("Deleting dup edge at $s $e/$f");
               @state.splice($e, 3, []);
               $dups_deleted++;
               $f = $e;
@@ -248,10 +365,17 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
         }
         $e += 3;
       }
+
+      @newstates[$newpos] = @state;
+    }
+    else {
+      say("Skipping $_");
     }
   }
 
-  say (now - ENTER now), "deleted $dups_deleted duplicate edges";
+
+
+  say (now - ENTER now), "  deleted $dups_deleted duplicate edges";
   @newstates;
 }
 
@@ -265,30 +389,46 @@ sub my-optimize(Mu $nfa) {
 
   if @states <= 2 { return HLLNFA.new(:@states) }
 
-  # dd :@states;
+  say "BEGIN OF OPTIMIZATION";
+
+  #dd :@states;
+  mydump(@states);
 
   my @remap = ORIG_find_single_epsilon_states(@states);
 
-  # dd :@remap;
+  mydump(@states);
+
+  #dd :@remap;
 
   my @incoming = ORIG_clear_remapped_and_count_incoming(@states, @remap);
 
-  # dd :@states, :@incoming;
+  #dd :@states, :@incoming;
+  #dd :@states;
 
   ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming);
+
+  #dd :@states;
 
   # dd :@states;
 
   my @resequence = ORIG_resequence_states_to_skip_empty(@states);
   # dd :@resequence;
-  
+
+  #mydump(@states);
+
   @states = ORIG_move_states_for_resequence(@states, @resequence);
+
+  mydump(@states);
+
+  #CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming);
+
+  say "END OF OPTIMIZATION";
 
   return HLLNFA.new(:@states);
 }
 
-sub my_alt_nfa(Mu $self, Mu $regex, str $name) {
-    my Mu $nfa     := $modified_nfa.new;
+sub my_alt_nfa(Mu $self, Mu $regex, str $name, Mu $nfa_class = $modified_nfa) {
+    my Mu $nfa     := $nfa_class.new;
     my Mu $altnfas := $regex.ALT_NFA($name);
 
     # say "my_ant_nfa for regex $regex.name() name $name, there are $altnfas.elems() alt nfas";
@@ -309,11 +449,11 @@ sub my_alt_nfa(Mu $self, Mu $regex, str $name) {
     $nfa.optimize
 }
 
-sub my_protoregex_nfa(Mu $self, $name) {
+sub my_protoregex_nfa(Mu $self, $name, Mu $nfa_class = $modified_nfa) {
     my $protorx := $self.HOW.cache(
       $self, "!protoregex_table", { $self."!protoregex_table"() }
     );
-    my Mu $nfa   := $modified_nfa.new;
+    my Mu $nfa   := $nfa_class.new;
     
     my $states_meth := $nfa.^find_method("states");
     my Mu $fates := nqp::atpos($states_meth($nfa), 0);
@@ -353,7 +493,26 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
       say "$indent   $_.key(): " ~ recursive-hllize($_.value()).raku;
   
       my $alt_nfa := my_alt_nfa($match, $m, $_.key);
-      say $indent ~ "     instantiated: " ~ recursive-hllize($alt_nfa.states).raku;
+      my @states := recursive-hllize($alt_nfa.states);
+      say $indent ~ "     instantiated: " ~ @states.raku;
+
+      if @states > 2 {
+        {
+          my $*OUT = "/tmp/optimizer.$($_.key).ported.txt".IO.open(:w);
+          mydump(@states);
+          $*OUT.close;
+        }
+
+        {
+          my $*OUT = "/tmp/optimizer.$($_.key).orig.txt".IO.open(:w);
+          my $protoregex_nfa := my_alt_nfa($match, $m, $_.key, QRegex::NFA);
+          if $protoregex_nfa.save != 0 {
+            mydump($protoregex_nfa.save);
+          }
+          $*OUT.close;
+        }
+      }
+      
     }
   }
   
@@ -363,15 +522,18 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
     }
   }
 
-   my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
-   my $saved := $protoregex_nfa.save;
-   my @states = @$saved;
-   if @states > 2 && @states[0] != 0 && @states[1] != 0 {
-     say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
-   }
+  my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
+  my $saved := $protoregex_nfa.save;
+  my @states = @$saved;
+
+  if @states > 2 && @states[0] != 0 && @states[1] != 0 {
+    say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
+  }
 }
 
-for Perl6::Grammar.^methods.sort(*.name) {
+for Perl6::Grammar.^methods.sort(*.name)
+#  .grep(*.name eq "termish")
+{
   output-nfas-for-code($_.name, $_);
 }
 
