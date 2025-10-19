@@ -75,8 +75,41 @@ my %cclass_names = (
     nqp::const::CCLASS_WORD => "WORD",
 );
 
+sub dump_state($s, @edges) {
+    say("$s:");
+    for @edges.list -> $a, $v, $t {
+        my $act = nqp::bitand_i($a,0xff);
+        my $action = $ACTIONS[$act];
+        if $act == nqp::const::EDGE_CODEPOINT
+            || $act == nqp::const::EDGE_CODEPOINT_LL {
+            say("\t$t $action " ~ nqp::chr($v));
+        }
+        elsif $act == nqp::const::EDGE_FATE {
+            say("\t$t $action " ~ $v.raku);
+        }
+        elsif $act == nqp::const::EDGE_CHARCLASS
+            || $act == nqp::const::EDGE_CHARCLASS_NEG {
+            say("\t$t $action " ~ $v.raku);
+        }
+        elsif $act == nqp::const::EDGE_CHARLIST
+            || $act == nqp::const::EDGE_CHARLIST_NEG {
+            say("\t$t $action " ~ $v);
+        }
+        elsif $act == nqp::const::EDGE_SUBRULE
+            && nqp::istype($v,str) {
+            say("\t$t $action " ~ $v);
+        }
+        elsif $act == nqp::const::EDGE_CHARRANGE | nqp::const::EDGE_CHARRANGE_M | nqp::const::EDGE_CHARRANGE_NEG | nqp::const::EDGE_CHARRANGE_M_NEG {
+            say("\t$t $action ", $v);
+        }
+        else {
+            say("\t$t $action");
+        }
+    }
+    say("");
+}
 
-sub mydump(@states) {
+sub mydump(@states, :@only_states) {
     my int $send = +@states;
     if $send > 1 {
         say("==========================================\n   $send states");
@@ -86,40 +119,8 @@ sub mydump(@states) {
             say("\t$f");
         }
         say("");
-        my int $s = 1;
-        while $s < $send {
-            say("$s:");
-            for @states[$s].list -> $a, $v, $t {
-                my $act = nqp::bitand_i($a,0xff);
-                my $action = $ACTIONS[$act];
-                if $act == nqp::const::EDGE_CODEPOINT
-                  || $act == nqp::const::EDGE_CODEPOINT_LL {
-                    say("\t$t $action " ~ nqp::chr($v));
-                }
-                elsif $act == nqp::const::EDGE_FATE {
-                    say("\t$t $action " ~ $v.raku);
-                }
-                elsif $act == nqp::const::EDGE_CHARCLASS
-                  || $act == nqp::const::EDGE_CHARCLASS_NEG {
-                    say("\t$t $action " ~ $v.raku);
-                }
-                elsif $act == nqp::const::EDGE_CHARLIST
-                  || $act == nqp::const::EDGE_CHARLIST_NEG {
-                    say("\t$t $action " ~ $v);
-                }
-                elsif $act == nqp::const::EDGE_SUBRULE
-                  && nqp::istype($v,str) {
-                    say("\t$t $action " ~ $v);
-                }
-                elsif $act == nqp::const::EDGE_CHARRANGE | nqp::const::EDGE_CHARRANGE_M | nqp::const::EDGE_CHARRANGE_NEG | nqp::const::EDGE_CHARRANGE_M_NEG {
-                    say("\t$t $action ", $v);
-                }
-                else {
-                    say("\t$t $action");
-                }
-            }
-            say("");
-            $s++;
+        for (@only_states // 1..^@states) -> $s {
+            dump_state($s, @states[$s]);
         }
     }
 }
@@ -611,8 +612,7 @@ sub does-edge-match($edge, $character) {
             True
         }
         when nqp::const::EDGE_CODEPOINT | nqp::const::EDGE_CODEPOINT_NEG | nqp::const::EDGE_CODEPOINT_LL {
-            # say "    codepoint edge";
-            $character eq $v;
+            $character eq ($v ~~ Int ?? chr($v) !! $v);
         }
         when nqp::const::EDGE_CHARCLASS | nqp::const::EDGE_CHARCLASS_NEG {
             # say "    cclass edge";
@@ -626,6 +626,7 @@ sub does-edge-match($edge, $character) {
             die "should never encounter a SUBRULE edge for matching";
         }
         when nqp::const::EDGE_CODEPOINT_I | nqp::const::EDGE_CODEPOINT_I_NEG | nqp::const::EDGE_CODEPOINT_I_LL {
+            $v = $v ~~ Int ?? chr($v) !! $v;
             $character ~~ /:i $v /;
         }
         when nqp::const::EDGE_GENERIC_VAR {
@@ -892,7 +893,7 @@ class NFASimState {
             :@.states, :$.text, offset => $.offset + 1, parent-state => self
         );
         my @active-stack = @.active;
-        say $char.raku, " with ", +@active-stack, " states" unless $quiet;
+        say $char.raku, " with ", +@active-stack, " states    ($(states-key(self)))" unless $quiet;
         my %seen-states;
         my %seen-next-states;
         while @active-stack {
@@ -908,13 +909,15 @@ class NFASimState {
                     next;
                 }
 
+                my $act = $ep.value[0] +& 0xff;
+
                 my $epsilon = $ep.value[0] == nqp::const::EDGE_EPSILON;
                 my $edge-id = EdgeId.new(
                     state-idx => $curst.state-idx,
                     edge-idx  => $ep.key,
                     :$epsilon
                 );
-                print($++ ?? "," !! "", $ep.key, " ", $ACTIONS[$ep.value[0]], "->", $to) unless $quiet;
+                print($++ ?? "," !! "", $ep.key, " ", $ACTIONS[$act], "->", $to) unless $quiet;
 
                 # epsilon edges put a new state in our active stack that we will
                 # visit real soon, while all other edges are put into the active
@@ -1047,8 +1050,11 @@ while $simstate {
             my %futures = generate-futures($simstate, @spk);
 
             for %futures.pairs.sort -> $f {
+                my @examples;
                 with %found-states{$f.key} -> $_ {
-                    my @examples = .pick(5).map(*.raku);
+                    @examples = .grep({ !.starts-with($simstate.text) && .chars != $simstate.text.chars + 1 }).pick(5).map(*.raku);
+                }
+                if @examples {
                     say +@inputs, ": ", $f.key, "    (ex: ", (@examples || Empty).join(", "), ")";
                 }
                 else {
@@ -1068,6 +1074,7 @@ while $simstate {
         say "b: go back one";
         say "s: go back to the start";
         say "a: automatically explore";
+        say "e: show edges of currently active states";
         say "q: stop";
 
         my $choice = prompt "Make your choice: ";
@@ -1103,6 +1110,7 @@ while $simstate {
             my %seen;
 
             my $total-added = 0;
+            my $longest = 0;
 
             while @active {
                 my NFASimState $item = @active.shift;
@@ -1110,6 +1118,9 @@ while $simstate {
                 with %seen{states-key($item)} -> $old {
                     # say "we already had states for key $(states-key($item)): ", $old.map(*.text.raku).join(", ");
                     if $old.elems > 4 {
+                        next;
+                    }
+                    elsif rand < 0.8e0 {
                         next;
                     }
                 }
@@ -1123,20 +1134,30 @@ while $simstate {
                     my %futures = generate-futures($item, @spk);
 
                     # randomize order of things picked
+                    my @suggestions;
                     for %futures.pairs.pick(*) -> $f {
                         for $f.value.list.pick(*) {
-                            @active.push(.[1]);
-                            # just try the same character a second time as well
-                            @active.push(.[1].fork(.[0]));
+                            if .[1].active > 0 {
+                                @suggestions.push(.[1]);
+                            }
                         }
                     }
+                    @suggestions = @suggestions.unique(as => &states-key);
+                    @active.push($_) for @suggestions.pick(*);
 
                     $total-added++;
                     %seen{states-key($item)}.push($item);
+                    $longest max= $item.text.chars;
 
                     if $total-added %% 10 {
-                        say "  ... already seen $total-added examples for %seen.elems() different state combinations. @active.elems() items in the work queue.";
-                        @active .= pick(*);
+                        say "  ... already seen $total-added.fmt("% 4d") examples for %seen.elems().fmt("% 5d") different states. @active.elems().fmt("% 7d") items in the queue. Longest string $longest";
+                        @active .= pick(*).sort(-*.text.chars);
+
+                        if $total-added >= 500 {
+                            say " ... aborting search so we don't explode our memory!";
+                            @active = @active[0];
+                            last;
+                        }
                     }
                 }
             }
@@ -1148,6 +1169,10 @@ while $simstate {
                 say "";
             }
             say "";
+            $should-step = False;
+        }
+        elsif $choice eq "e" {
+            mydump($simstate.states, only_states => $simstate.active.map(*.state-idx));
             $should-step = False;
         }
         else {
