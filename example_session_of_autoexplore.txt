@@ -1,0 +1,157 @@
+all NFAs matching "termish":
+    0    8809 states: termish
+current state: {active => [State(1 from [])], offset => 0, parent-state => (Any), states => {fates => [0 1], states => 8809}, text => }
+
+Current text:
+  ""
+
+
+Possible theoretical inputs:
+
+0: 4433,4450,6623,6859,6896
+    "S" "s"
+
+1: 4433,4450,6859,6896
+    "A" "B" "C" "D" "E" "F" "H" "I" "K" "L" "N" "P" "Q" "T" "U" "X" "Y" "Z" "a" "b" "c" "d" "e" "g" "h" "k" "l" "m" "n" "o" "p" "q" "r" "t" "u" "v" "x" "y" "z" "Â" "ß" "â" "ſ" "Ẑ" "ẑ" "ẞ"
+
+2: 4450
+    " " "!" "\"" "'" "*" "+" "-" "." "/" "<" "?" "[" "\\" "^" "_" "\{" "|" "~" "«" "‘" "’" "‚" "“" "”" "„" "…" "∅" "−" "∞" "⚛" "｢"
+
+3: 4450,4483
+    "(" ":"
+
+4: 4450,4484,4487,4489,4491,4981,5035,5037
+    "\$" "\%" "\&" "\@"
+
+5: 4450,6650,6724,6727
+    "0" "5" "9"
+
+ ... also valid: stuff from cclass ALPHABETIC
+ ... also valid: stuff from cclass NUMERIC
+
+c: Enter your own
+b: go back one
+s: go back to the start
+a: automatically explore
+q: stop
+Make your choice: a
+ ==> Will automatically explore the NFA's state space.
+  ... already seen 10 examples for 4 different state combinations. 513 items in the work queue.
+  ... already seen 20 examples for 8 different state combinations. 1072 items in the work queue.
+  ... already seen 30 examples for 10 different state combinations. 1459 items in the work queue.
+  ... already seen 40 examples for 12 different state combinations. 1565 items in the work queue.
+  ... already seen 50 examples for 14 different state combinations. 1823 items in the work queue.
+  ... already seen 60 examples for 16 different state combinations. 2381 items in the work queue.
+  ... already seen 70 examples for 18 different state combinations. 2855 items in the work queue.
+  ... already seen 80 examples for 23 different state combinations. 3089 items in the work queue.
+  ... already seen 90 examples for 26 different state combinations. 3220 items in the work queue.
+  ... already seen 100 examples for 29 different state combinations. 3344 items in the work queue.
+  ... already seen 110 examples for 31 different state combinations. 3567 items in the work queue.
+  ... already seen 120 examples for 32 different state combinations. 3953 items in the work queue.
+  ... already seen 130 examples for 33 different state combinations. 4411 items in the work queue.
+  ... already seen 140 examples for 33 different state combinations. 4374 items in the work queue.
+  ... already seen 150 examples for 34 different state combinations. 3921 items in the work queue.
+  ... already seen 160 examples for 34 different state combinations. 3682 items in the work queue.
+Here's all the combinations of states I could find:
+States 1
+  ""
+
+States 4430
+  "sâ᠎",  "s  ",  "sâ ",  "S ",  "sâ "
+
+States 4433,4450,6623,6859,6896
+  "s",  "ss",  "S",  "SS"
+
+States 4433,4450,6859,6896
+  "ââ",  "D",  "T",  "II",  "t"
+
+States 4433,6859,6896
+  "Sſſ",  "s00",  "ss\b",  "SSẞẞ",  "sâ"
+
+States 4435,6861,6898
+  "S--",  "T--",  "S'",  "s'",  "sâ''"
+
+States 4436,6862,6899
+  "S'ſ",  "S'b",  "s'ſſ",  "S'x",  "S'xZZ"
+
+States 4450,4483
+  ":",  "::",  "(",  "((",  "::\&"
+
+States 4450,4483,4486
+  "\$ß9::",  "\$ß0(",  "\$ß'b9X:",  "\$ß'b9X((",  "\$ß'b9::"
+
+States 4450,4483,5035,5037
+  ":\$\{\$",  ":\$\{\$\$",  ":\$[\&",  ":\$[\@",  ":\$[\&\&"
+
+States 4450,4484,4487,4489,4491,4981,5035,5037
+  "\$",  "\%\%",  "\@\@",  "\%",  "\&\&"
+
+States 4450,4486
+  "\$ZZZ##yy",  "\$ß0<<",  "\$ZZZ##::",  "\$ZZZ##[[",  "\$ZZZ##ſſ"
+
+States 4450,4486,5022
+  "\$ÂÂẐẐaa",  "\$ZZZX",  "\$ZZZ##",  "\$ZZZ\{",  "\$ÂÂ0ſſ"
+
+States 4450,4486,5024
+  "\$ß9''",  "\$ß'b9'",  "\$ß0''",  "\$ß'b9X-",  "\$ß'b9''"
+
+States 4450,4486,5025
+  "\$ß'ẑẑaa9",  "\$ß'ẑẑaaÂÂ",  "\$ß'yy55<",  "\$ß'yy55ẞ",  "\$ß'b9X"
+
+States 4450,4486,5035,5037
+  "\$ß0\@",  "\$ß0\@\@",  "\$\@\@\$\$\&\&",  "\$ß0\&",  "\$\@\@\$\$\@\@"
+
+States 4450,4488
+  "\$05",  "\$09",  "\$099",  "\$0990",  "\$099\@"
+
+States 4450,5025
+  "\$ß'ẑẑ",  "\$ß'b",  "\$ß'yy",  "\$ß'Â",  "\$ß'b9'aa"
+
+States 4450,5035,5037
+  ":\$",  "::\&\{",  ":\&\&",  "(\&",  "(\&\&"
+
+States 4450,5036
+  "\$ß0\@[[",  ":\$\{\$[",  ":\$\{\$[[",  ":\$[\&\{",  ":\$[\&[["
+
+States 4450,6650,6724,6727
+  "0",  "05",  "55",  "5",  "55"
+
+States 4450,6742
+  "5ee",  "05EE",  "5e",  "5E",  "55e"
+
+States 4483
+  "\$((",  "\$(",  "\%<",  "\$<",  "\%("
+
+States 4483,5036
+  "\$\{\{",  "\%\{\{",  "\%[",  "\%[[",  "\$\{"
+
+States 4486
+  "\$Z\&\&",  "\%\%Y\&\&",  "\%\%Z\@\@",  "\%\%00\@\@",  "\%\%[\@"
+
+States 4486,5017
+  "\$\@\@\$\$",  "\$\@\@\@\@",  "\$\@\@##",  "\$\@\@#",  "\$\@\@\&"
+
+States 4486,5022
+  "\$ÂÂ0",  "\$ÂÂẐẐ",  "\$ß9",  "\$ZZZ",  "\$ß0"
+
+States 4486,5024
+  "\$ß'",  "\$ß'b'",  "\$ß'b-",  "\$A'",  "\$Z''"
+
+States 4486,5025
+  "\$ß'ẑẑÂ",  "\$ß'ẑẑaa",  "\$ß'ẑẑy",  "\$ß'b9",  "\$ß'yy55"
+
+States 4488
+  "\$0",  "\$00",  "\%9",  "\%55",  "\$9"
+
+States 5017,5032
+  "\$\@\@",  "\%\%Z",  "\%\%[",  "\%\%00",  "\%\%Y"
+
+States 5022
+  "\$ÂÂ",  "\$Z",  "\$ß",  "\$AA",  "\$A"
+
+States 5036
+  ":\$\{",  "::\&\{'",  "(\&[",  "::\&\{\{\{",  ":\$["
+
+States 6745
+  "5e00",  "5e5",  "5e500",  "5e50",  "5e5005"
+

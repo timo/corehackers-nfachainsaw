@@ -750,7 +750,18 @@ sub split-apart(%splitpoints, $new-edge) {
         %splitpoints{$_} = 1 for @changepoints;
     }
     elsif $new ~~ CClass {
-        note "don't know yet how to make splitpoints for char class %cclass_names{$new.cclass_id}";
+        # TODO splitpoints for cclass ...
+        # note "don't know yet how to make splitpoints for char class %cclass_names{$new.cclass_id}";
+        my $success = 0;
+        for ("\n \t\b\a " ~ '-—☺_059abxyzABXYZâẑÂẐßẞſ.,_^[~](){}').comb -> $c {
+            if nqp::iscclass($new.cclass_id, $c, 0) {
+                %splitpoints{$c} = 1;
+                $success++;
+            }
+        }
+        unless $success {
+            note "Could not find an example for cclass $new.cclass_id() ($(%cclass_names{$new.cclass_id})) in my silly example string!";
+        }
     }
     elsif $new ~~ Anything {
         # no-op
@@ -874,7 +885,7 @@ class NFASimState {
         @all-edges;
     }
 
-    method step(:$quiet = False) {
+    method step(:$quiet = False --> NFASimState) {
         # get character in question
         my $char = $.text.substr($.offset, 1);
         my $nextst = NFASimState.new(
@@ -956,7 +967,40 @@ else {
 }
 say("  ", .key.fmt("% 3d"), " ", (.value.value.elems - 1).fmt("% 7d"), " states: ", .value.key) for @all-nfas.pairs;
 
-my $desired-nfa = prompt("Choose an NFA to experiment with: ");
+my $desired-nfa = do if @all-nfas > 1 {
+    prompt("Choose an NFA to experiment with: ");
+}
+elsif @all-nfas == 1 {
+    0;
+}
+else {
+    say "got nothing :(";
+}
+
+
+my %found-states;
+
+
+sub states-key(NFASimState $state) {
+    $state.active.map(*.state-idx).sort.join(",");
+}
+
+sub generate-futures($state, @spk) {
+    my %futures;
+
+    for chr(ord(@spk[0]) - 1), |@spk {
+        # say "forking with $_.raku() (", ($state.text ~ $_).raku, ")";
+        my $forked = $state.fork($_).step(:quiet);
+        my $states-key = states-key($forked);
+        %futures{$states-key}.push([$_, $forked]);
+        if $forked.text.chars > 1 {
+            %found-states{$states-key}.push($forked.text);
+        }
+    }
+
+    return %futures;
+}
+
 
 my $simstate; 
 
@@ -964,13 +1008,14 @@ if $desired-nfa eq any(@all-nfas.keys) {
    $simstate = NFASimState.start(@all-nfas[$desired-nfa].value, text => '');
 }
 
+
 while $simstate {
     my @possible-edges = $simstate.all-active-edges();
     # say "possible edges: ", @possible-edges;
     my %splitpoints;
     @possible-edges.map({ split-apart %splitpoints, $_.value });
     my @spk = %splitpoints.keys.sort;
-    
+
     my @cclasses = @possible-edges
         .map(*.value)
         .map(&generate-possible-matching-characters)
@@ -997,29 +1042,32 @@ while $simstate {
         elsif @spk {
             say "";
             say "Possible theoretical inputs:";
+            say "";
 
-            my %futures;
+            my %futures = generate-futures($simstate, @spk);
 
-            for chr(ord(@spk[0]) - 1), |@spk {
-                my $forked = $simstate.fork($_).step(:quiet);
-                #say +@inputs, ": ", $_.raku, " → ", $forked.active.map(*.state-idx);
-                %futures{$forked.active.map(*.state-idx).sort.join(",")}.push($_);
-                #@inputs.push($_);
-            }
-
-            for %futures.pairs.sort {
-                say +@inputs, ": ", .key;
-                say "    " ~ .value.map(*.raku).join(" ");
-                @inputs.push(.value[0]);
+            for %futures.pairs.sort -> $f {
+                with %found-states{$f.key} -> $_ {
+                    my @examples = .pick(5).map(*.raku);
+                    say +@inputs, ": ", $f.key, "    (ex: ", (@examples || Empty).join(", "), ")";
+                }
+                else {
+                    say +@inputs, ": ", $f.key;
+                }
+                say "    " ~ $f.value.map(*.[0].raku).join(" ");
+                say "";
+                @inputs.push($f.value[0][0]);
             }
 
             say " ... also valid: stuff from cclass $_" for @cclasses;
+            say "" if @cclasses;
 
             say "c: Enter your own";
         }
 
         say "b: go back one";
         say "s: go back to the start";
+        say "a: automatically explore";
         say "q: stop";
 
         my $choice = prompt "Make your choice: ";
@@ -1048,6 +1096,59 @@ while $simstate {
             say "";
             say "Text so far: $simstate.text.raku()";
             last;
+        }
+        elsif $choice eq "a" {
+            say " ==> Will automatically explore the NFA's state space.";
+            my NFASimState @active = $simstate;
+            my %seen;
+
+            my $total-added = 0;
+
+            while @active {
+                my NFASimState $item = @active.shift;
+
+                with %seen{states-key($item)} -> $old {
+                    # say "we already had states for key $(states-key($item)): ", $old.map(*.text.raku).join(", ");
+                    if $old.elems > 4 {
+                        next;
+                    }
+                }
+
+                my @possible-edges = $item.all-active-edges();
+                my %splitpoints;
+                @possible-edges.map({ split-apart %splitpoints, $_.value });
+                my @spk = %splitpoints.keys.sort;
+
+                if @spk {
+                    my %futures = generate-futures($item, @spk);
+
+                    # randomize order of things picked
+                    for %futures.pairs.pick(*) -> $f {
+                        for $f.value.list.pick(*) {
+                            @active.push(.[1]);
+                            # just try the same character a second time as well
+                            @active.push(.[1].fork(.[0]));
+                        }
+                    }
+
+                    $total-added++;
+                    %seen{states-key($item)}.push($item);
+
+                    if $total-added %% 10 {
+                        say "  ... already seen $total-added examples for %seen.elems() different state combinations. @active.elems() items in the work queue.";
+                        @active .= pick(*);
+                    }
+                }
+            }
+
+            say "Here's all the combinations of states I could find:";
+            for %seen.pairs.sort {
+                say "States $_.key()";
+                say "  ", .value.list.map(*.text.raku()).join(",  ");
+                say "";
+            }
+            say "";
+            $should-step = False;
         }
         else {
             say "Did not recognize input $choice.raku()";
