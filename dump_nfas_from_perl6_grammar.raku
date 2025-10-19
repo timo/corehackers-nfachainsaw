@@ -3,6 +3,8 @@ use nqp;
 use Perl6::Grammar:from<NQP>;
 use QRegex:from<NQP>;
 
+use JSON::Fast;
+
 sub recursive-hllize(Mu $in) {
   my $h = nqp::hllize($in);
   if $h ~~ Positional {
@@ -1137,27 +1139,25 @@ while $simstate {
                     my @suggestions;
                     for %futures.pairs.pick(*) -> $f {
                         for $f.value.list.pick(*) {
-                            if .[1].active > 0 {
-                                @suggestions.push(.[1]);
-                            }
+                            @suggestions.push(.[1]);
                         }
                     }
                     @suggestions = @suggestions.unique(as => &states-key);
                     @active.push($_) for @suggestions.pick(*);
+                }
 
-                    $total-added++;
-                    %seen{states-key($item)}.push($item);
-                    $longest max= $item.text.chars;
+                $total-added++;
+                %seen{states-key($item)}.push($item);
+                $longest max= $item.text.chars;
 
-                    if $total-added %% 10 {
-                        say "  ... already seen $total-added.fmt("% 4d") examples for %seen.elems().fmt("% 5d") different states. @active.elems().fmt("% 7d") items in the queue. Longest string $longest";
-                        @active .= pick(*).sort(-*.text.chars);
+                if $total-added %% 10 {
+                    say "  ... already seen $total-added.fmt("% 4d") examples for %seen.elems().fmt("% 5d") different states. @active.elems().fmt("% 7d") items in the queue. Longest string $longest";
+                    @active .= pick(*).sort(-*.text.chars);
 
-                        if $total-added >= 500 {
-                            say " ... aborting search so we don't explode our memory!";
-                            @active = @active[0];
-                            last;
-                        }
+                    if $total-added >= 500 {
+                        say " ... aborting search so we don't explode our memory!";
+                        @active = @active[0];
+                        last;
                     }
                 }
             }
@@ -1169,6 +1169,56 @@ while $simstate {
                 say "";
             }
             say "";
+
+            loop {
+                say "s: save to a .json file";
+                say "r: pick a random state as the new current state";
+                say "any other input: do nothing and return to menu";
+                say "";
+                my $choice = prompt "What do you want to do with it? ";
+                if $choice eq "s" {
+                    my %seen_to_serialize = %seen.pairs.map({ .key => .value.list.map(*.text) });
+                    my $fn = prompt "filename, please (or press enter for random): ";
+                    if $fn eq "" {
+                        my $nfn = ("nfa_exploration_" ~ ("A".."Z").pick(8).join("") ~ ".json").IO;
+                        say "Saving to $nfn.absolute()";
+                        $nfn.spurt(to-json(%seen_to_serialize, :pretty));
+                    }
+                    elsif $fn.IO.e {
+                        say "OK to overwrite $fn.IO.absolute() ($fn.IO.s() bytes big)?";
+                        say "y: yes";
+                        say "n: no, abort";
+                        say "r: random new name";
+                        my $ch2 = prompt "> ";
+                        if $ch2 eq "y" {
+                            $fn.IO.spurt(to-json(%seen_to_serialize, :pretty))
+                        }
+                        elsif $ch2 eq "n" {
+                            # nothing here
+                            next;
+                        }
+                        elsif $ch2 eq "r" {
+                            my $nfn = ($fn.IO.basename ~ ("A".."Z").pick(8).join("") ~ ".json").IO;
+                            say "Saving to $nfn.absolute()";
+                            $nfn.spurt(to-json(%seen_to_serialize, :pretty));
+                        }
+                    }
+                    else {
+                        say " ==> Returning to menu!";
+                        last;
+                    }
+                }
+                elsif $choice eq "r" {
+                    $simstate = %seen.pairs.pick.value.pick;
+                    say " ==> Randomly chose this state:";
+                    say "    $simstate.gist()";
+                }
+                else {
+                    say " ==> Returning to menu!";
+                    last;
+                }
+            }
+
             $should-step = False;
         }
         elsif $choice eq "e" {
