@@ -157,9 +157,9 @@ sub ORIG_find_single_epsilon_states(@states) {
     }
   }
 
-  say("\n\nnow @states.elems() states before unlinking empties\n");
+  say("\n\nnow @states.elems() states before unlinking empties\n") if $DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements";
+  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements" if $DEBUG_VERBOSE > 0;
 
   return @remap;
 }
@@ -192,7 +192,7 @@ sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
         while @remap[$newto] -> $mapped {
           $chased++;
           $newto = $mapped;
-          say "  chasing $was to $newto";
+          say "  chasing $was to $newto" if $DEBUG_VERBOSE > 0;
         }
 
         if $newto != $to {
@@ -209,9 +209,9 @@ sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
     mydump(@states);
   }
 
-  say("\n\nnow @states.elems() states before stealing singleton edges\n");
+  say("\n\nnow @states.elems() states before stealing singleton edges\n") if $DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  cleared $cleared states, followed the mapping $chased steps";
+  say (now - ENTER now), "  cleared $cleared states, followed the mapping $chased steps" if $DEBUG_VERBOSE > 0;
   return @incoming;
 }
 
@@ -224,17 +224,17 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
   my @newedges;
   my @oldedges = @states[1].list;
 
-  say "start state edges: ", @oldedges.raku;
+  say "start state edges: ", @oldedges.raku if $DEBUG_VERBOSE > 0;
 
   while @work {
     my $item = @work.pop;
 
     next if @seen[$item]++;
 
-    say "    considering state $item for edge stealing;";
+    say "    considering state $item for edge stealing;" if $DEBUG_VERBOSE > 0;
 
     my @state := @states[$item];
-    say "      states: @state[]";
+    say "      states: @state[]" if $DEBUG_VERBOSE > 0;
 
     # don't reduce incoming count for start state, that would be silly.
     #my $was_removed = False;
@@ -252,12 +252,12 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
       my $to = @state[$e];
 
       if $act == nqp::const::EDGE_EPSILON {
-        say "      epsilon!";
+        say "      epsilon!" if $DEBUG_VERBOSE > 0;
         @work.push($to);
       }
       else {
         my $v = @state[$e - 1];
-        say "      $ACTIONS[$act]!";
+        say "      $ACTIONS[$act]!" if $DEBUG_VERBOSE > 0;
         @newedges.push([@state[$e - 2], $v, $to]);
       }
 
@@ -275,9 +275,11 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
 
   @states[1] = @newedges;
   
-  say (now - ENTER now), "  removed $removed states after stealing edges from stuff reachable with epsilon from start state.";
-  say "    @seen.grep(* != 0).elems() states in the epsilon-closure of state 1:  @seen.pairs().grep(*.value != 0).map(*.key)";
-  say "    state 1 used to have @oldedges.elems() elements, now has @newedges.elems()";
+  say (now - ENTER now), "  removed $removed states after stealing edges from stuff reachable with epsilon from start state." if $DEBUG_VERBOSE > 0;
+  if $DEBUG_VERBOSE > 0 {
+    say "    @seen.grep(* != 0).elems() states in the epsilon-closure of state 1:  @seen.pairs().grep(*.value != 0).map(*.key)";
+    say "    state 1 used to have @oldedges.elems() elements, now has @newedges.elems()";
+  }
 }
 
 sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
@@ -302,7 +304,7 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
           @state[$e    ] = $tostate[2];
   
           if --@incoming[$to] == 0 {
-            say "    clearing out unused state $to";
+            say "    clearing out unused state $to" if $DEBUG_VERBOSE > 0;
             @states[$to] = [];
             $removed++;
           }
@@ -312,9 +314,9 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
     }
   }
 
-  say("\n\nnow @states.elems() states before calculating remap\n");
+  say("\n\nnow @states.elems() states before calculating remap\n") if $DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  removed $removed states that were no longer referenced.";
+  say (now - ENTER now), "  removed $removed states that were no longer referenced." if $DEBUG_VERBOSE > 0;
 }
 
 sub ORIG_resequence_states_to_skip_empty(@states) {
@@ -324,7 +326,7 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
     @remap[$_] = (@states[$_].elems == 0 ?? 0 !! ++$newend);
   }
 
-  say("\n\nnow @states.elems() states\n");
+  say("\n\nnow @states.elems() states\n") if $DEBUG_VERBOSE > 0;
 
   if $DEBUG_VERBOSE > 1 {
     if $DEBUG_VERBOSE > 2 {
@@ -337,10 +339,10 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
     }
   }
 
-  say("\n\nnow @states.elems() states mapping to $newend states\n");
+  say("\n\nnow @states.elems() states mapping to $newend states\n") if $DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements";
-  say "  new length of state array is $newend, was @states.elems()";
+  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements" if $DEBUG_VERBOSE > 0;
+  say "  new length of state array is $newend, was @states.elems()" if $DEBUG_VERBOSE > 0;
 
   return @remap;
 }
@@ -354,12 +356,12 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
   for 1..^@states {
     my $s = $_;
     my @state := @states[$_];
-    say "Skipping $_" if @state == 0;
+    say "Skipping $_" if @state == 0 and $DEBUG_VERBOSE > 0;
     next if @state == 0;
     my $newpos = @remap[$_];
 
     if $newpos {
-      say "state $newpos is a clone of state $_";
+      say "state $newpos is a clone of state $_" if $DEBUG_VERBOSE > 0;
 
       my int $eend = +@state;
       my int $e = 2;
@@ -387,7 +389,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
                 && @state[$e + 2] == @state[$f + 2]
                 && @state[$e + 1] == @state[$f + 1] {
               # delete the duplicate edge
-              say("Deleting dup edge at $s $e/$f");
+              say("Deleting dup edge at $s $e/$f") if $DEBUG_VERBOSE > 0;
               @state.splice($e, 3, []);
               $dups_deleted++;
               $f = $e;
@@ -409,7 +411,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
 
 
 
-  say (now - ENTER now), "  deleted $dups_deleted duplicate edges";
+  say (now - ENTER now), "  deleted $dups_deleted duplicate edges" if $DEBUG_VERBOSE > 0;
   @newstates;
 }
 
@@ -750,6 +752,9 @@ sub split-apart(%splitpoints, $new-edge) {
     elsif $new ~~ CClass {
         note "don't know yet how to make splitpoints for char class %cclass_names{$new.cclass_id}";
     }
+    elsif $new ~~ Anything {
+        # no-op
+    }
     else {
         note "couldn't handle $new.raku() :(";
     }
@@ -928,18 +933,38 @@ class NFASimState {
     }
 }
 
-for Perl6::Grammar.^methods.sort(*.name)
-  .grep(*.name eq "termish")
-{
+
+my @methods = Perl6::Grammar.^methods.sort(*.name);
+
+with @*ARGS[0] -> $filter {
+    my $count-before = +@methods;
+    @methods .= grep(*.name.contains($filter));
+    if not @methods {
+        say "filter $filter.raku() given on commandline matched no methods! There were $count-before methods available.";
+    }
+}
+
+for @methods {
   output-nfas-for-code($_.name, $_);
 }
 
-say "all NFAs:";
-say ("  " ~ .key) for @all-nfas;
+with @*ARGS[0] -> $filter {
+    say "all NFAs matching $filter.raku():";
+}
+else {
+    say "all NFAs:";
+}
+say("  ", .key.fmt("% 3d"), " ", (.value.value.elems - 1).fmt("% 7d"), " states: ", .value.key) for @all-nfas.pairs;
 
-my $simstate = NFASimState.start(@all-nfas[0].value, text => '');
+my $desired-nfa = prompt("Choose an NFA to experiment with: ");
 
-loop {
+my $simstate; 
+
+if $desired-nfa eq any(@all-nfas.keys) {
+   $simstate = NFASimState.start(@all-nfas[$desired-nfa].value, text => '');
+}
+
+while $simstate {
     my @possible-edges = $simstate.all-active-edges();
     # say "possible edges: ", @possible-edges;
     my %splitpoints;
@@ -965,7 +990,7 @@ loop {
 
     if $simstate.text.chars <= $simstate.offset || $simstate.active == 0 {
         my @inputs;
-        if not @spk || $simstate.active == 0 {
+        if !@spk || $simstate.active == 0 {
             say "";
             say "The NFA has finished running.";
         }
