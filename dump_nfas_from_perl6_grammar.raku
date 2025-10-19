@@ -125,7 +125,7 @@ sub ORIG_find_single_epsilon_states(@states) {
     }
   }
 
-  say "remapping has @remap.grep(none(0)).elems() elements";
+  say (now - ENTER now), "remapping has @remap.grep(none(0)).elems() elements";
 
   return @remap;
 }
@@ -133,31 +133,40 @@ sub ORIG_find_single_epsilon_states(@states) {
 sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
   my @incoming;
   my $cleared = 0;
+  my $chased = 0;
   for 1..^@states {
     if @remap[$_] {
-      @states[$_] = [] but "empty!";
+      @states[$_] = [];
       $cleared++;
       next;
     }
 
     my @state := @states[$_];
-    for @state <-> $a, $v, $to {
-      next unless $to;
+    #if @state > 3 {
+    #  note "state $_/@states.elems() has @state.elems() elements";
+    #}
+    my int $e = 0;
+    my int $eend = +@state;
+    while $e < $eend {
+      my $to = @state[$e + 2];
+      if $to {
+        my $newto = $to;
+        while @remap[$newto] -> $mapped {
+          $chased++;
+          $newto = $mapped;
+        }
 
-      my $newto = $to;
-      while @remap[$newto] -> $mapped {
-        $newto = $mapped;
+        if $newto != $to {
+          @state[$e + 2] = $newto;
+        }
+
+        @incoming[$to]++;
       }
-
-      if $newto != $to {
-        $to = $newto;
-      }
-
-      @incoming[$to]++;
+      $e += 3;
     }
   }
 
-  say "cleared $cleared states";
+  say (now - ENTER now), "cleared $cleared states, followed the mapping $chased steps";
   return @incoming;
 }
 
@@ -173,21 +182,14 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
         $v = $tostate[1];
         $to = $tostate[2];
 
-        try {
-          +$to;
-          CATCH {
-            say "WTF to value: $to in state $stateidx: @state.raku()";
-          }
-        }
-
         if --@incoming[$to] == 0 {
-          @states[$to] = [] but "unreferenced!";
+          @states[$to] = [];
           $removed++;
         }
       }
     }
   }
-  say "removed $removed states that were no longer referenced.";
+  say (now - ENTER now), "removed $removed states that were no longer referenced.";
 }
 
 sub ORIG_resequence_states_to_skip_empty(@states) {
@@ -197,7 +199,7 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
     @remap[$_] = (@states[$_].elems == 0 ?? 0 !! ++$newend);
   }
 
-  say "remapping has @remap.grep(none(0)).elems() elements";
+  say (now - ENTER now), "remapping has @remap.grep(none(0)).elems() elements";
   say "  new length of state array is $newend, was @states.elems()";
 
   return @remap;
@@ -249,9 +251,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
     }
   }
 
-  if $dups_deleted {
-    say "deleted $dups_deleted duplicate edges";
-  }
+  say (now - ENTER now), "deleted $dups_deleted duplicate edges";
   @newstates;
 }
 
