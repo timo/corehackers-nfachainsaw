@@ -14,12 +14,29 @@ sub recursive-hllize(Mu $in) {
   elsif $h ~~ Hash {
       die "ack";
   }
+  elsif !$h.DEFINITE {
+      return Any;
+  }
   else {
       return $h;
   }
 }
 
-my $DEBUG_VERBOSE = 0;
+multi sub stateslist-to-json(@states) {
+    my @hllized = recursive-hllize(@states);
+    "["
+    ~ to-json(@hllized[0]) ~ ",\n"
+    ~ (
+        do for @hllized.skip(1) -> @edges {
+        "  ["
+        ~ (do for @edges.rotor(3, :partial) -> $triple {
+          $triple.map({ to-json($_, :!pretty) }).join(", ")
+        }).join(",\n   ") ~ "]"
+    }).join(",\n")
+    ~ "\n]\n";
+}
+
+my $*DEBUG_VERBOSE = 0;
 
 my $match = Perl6::Grammar.new;
 
@@ -28,6 +45,14 @@ my Mu $protoregex_meth := $match.^find_method("!protoregex_table");
 my Mu $qregex_nfa_class := QRegex::NFA;
 
 my $modified_nfa = $qregex_nfa_class but role { method optimize { return my-optimize(self); } }
+
+sub prompt(\c) {
+    my $res := &CORE::prompt(|c);
+    if $*IN.eof {
+        die "User closed the input stream";
+    }
+    $res;
+}
 
 say "protoregex table:";
 say nqp::hllize($protoregex_meth($match)).keys;
@@ -118,10 +143,10 @@ sub mydump(@states, :@only_states) {
         say("Fates:");
         for @states[0] -> $f {
             $f = "" if nqp::isnull($f);
-            say("\t$f");
+            say("\t$f.gist()");
         }
         say("");
-        for (@only_states // 1..^@states) -> $s {
+        for (@only_states || 1..^@states) -> $s {
             dump_state($s, @states[$s]);
         }
     }
@@ -152,7 +177,7 @@ sub ORIG_find_single_epsilon_states(@states) {
     }
   }
 
-  if $DEBUG_VERBOSE > 1 {
+  if $*DEBUG_VERBOSE > 1 {
     for 1..^@states {
       if @remap[$_] {
         say("\t$_ -> @remap[$_]");
@@ -160,9 +185,9 @@ sub ORIG_find_single_epsilon_states(@states) {
     }
   }
 
-  say("\n\nnow @states.elems() states before unlinking empties\n") if $DEBUG_VERBOSE > 0;
+  say("\n\nnow @states.elems() states before unlinking empties\n") if $*DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements" if $DEBUG_VERBOSE > 0;
+  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements" if $*DEBUG_VERBOSE > 0;
 
   return @remap;
 }
@@ -195,7 +220,7 @@ sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
         while @remap[$newto] -> $mapped {
           $chased++;
           $newto = $mapped;
-          say "  chasing $was to $newto" if $DEBUG_VERBOSE > 0;
+          say "  chasing $was to $newto" if $*DEBUG_VERBOSE > 0;
         }
 
         if $newto != $to {
@@ -208,13 +233,9 @@ sub ORIG_clear_remapped_and_count_incoming(@states, @remap) {
     }
   }
 
-  if $DEBUG_VERBOSE > 2 {
-    mydump(@states);
-  }
+  say("\n\nnow @states.elems() states before stealing singleton edges\n") if $*DEBUG_VERBOSE > 0;
 
-  say("\n\nnow @states.elems() states before stealing singleton edges\n") if $DEBUG_VERBOSE > 0;
-
-  say (now - ENTER now), "  cleared $cleared states, followed the mapping $chased steps" if $DEBUG_VERBOSE > 0;
+  say (now - ENTER now), "  cleared $cleared states, followed the mapping $chased steps" if $*DEBUG_VERBOSE > 0;
   return @incoming;
 }
 
@@ -227,17 +248,17 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
   my @newedges;
   my @oldedges = @states[1].list;
 
-  say "start state edges: ", @oldedges.raku if $DEBUG_VERBOSE > 0;
+  say "start state edges: ", @oldedges.raku if $*DEBUG_VERBOSE > 0;
 
   while @work {
     my $item = @work.pop;
 
     next if @seen[$item]++;
 
-    say "    considering state $item for edge stealing;" if $DEBUG_VERBOSE > 0;
+    say "    considering state $item for edge stealing;" if $*DEBUG_VERBOSE > 0;
 
     my @state := @states[$item];
-    say "      states: @state[]" if $DEBUG_VERBOSE > 0;
+    say "      states: @state[]" if $*DEBUG_VERBOSE > 0;
 
     # don't reduce incoming count for start state, that would be silly.
     #my $was_removed = False;
@@ -255,12 +276,12 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
       my $to = @state[$e];
 
       if $act == nqp::const::EDGE_EPSILON {
-        say "      epsilon!" if $DEBUG_VERBOSE > 0;
+        say "      epsilon!" if $*DEBUG_VERBOSE > 0;
         @work.push($to);
       }
       else {
         my $v = @state[$e - 1];
-        say "      $ACTIONS[$act]!" if $DEBUG_VERBOSE > 0;
+        say "      $ACTIONS[$act]!" if $*DEBUG_VERBOSE > 0;
         @newedges.push([@state[$e - 2], $v, $to]);
       }
 
@@ -278,8 +299,8 @@ sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @in
 
   @states[1] = @newedges;
   
-  say (now - ENTER now), "  removed $removed states after stealing edges from stuff reachable with epsilon from start state." if $DEBUG_VERBOSE > 0;
-  if $DEBUG_VERBOSE > 0 {
+  say (now - ENTER now), "  removed $removed states after stealing edges from stuff reachable with epsilon from start state." if $*DEBUG_VERBOSE > 0;
+  if $*DEBUG_VERBOSE > 0 {
     say "    @seen.grep(* != 0).elems() states in the epsilon-closure of state 1:  @seen.pairs().grep(*.value != 0).map(*.key)";
     say "    state 1 used to have @oldedges.elems() elements, now has @newedges.elems()";
   }
@@ -298,7 +319,7 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
         my $tostate := @states[$to];
         if $tostate.elems == 3 {
 
-          if $DEBUG_VERBOSE > 1 {
+          if $*DEBUG_VERBOSE > 1 {
             say "  $stateidx stealing $to";
           }
 
@@ -307,7 +328,7 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
           @state[$e    ] = $tostate[2];
   
           if --@incoming[$to] == 0 {
-            say "    clearing out unused state $to" if $DEBUG_VERBOSE > 0;
+            say "    clearing out unused state $to" if $*DEBUG_VERBOSE > 0;
             @states[$to] = [];
             $removed++;
           }
@@ -317,9 +338,9 @@ sub ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming) {
     }
   }
 
-  say("\n\nnow @states.elems() states before calculating remap\n") if $DEBUG_VERBOSE > 0;
+  say("\n\nnow @states.elems() states before calculating remap\n") if $*DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  removed $removed states that were no longer referenced." if $DEBUG_VERBOSE > 0;
+  say (now - ENTER now), "  removed $removed states that were no longer referenced." if $*DEBUG_VERBOSE > 0;
 }
 
 sub ORIG_resequence_states_to_skip_empty(@states) {
@@ -329,10 +350,10 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
     @remap[$_] = (@states[$_].elems == 0 ?? 0 !! ++$newend);
   }
 
-  say("\n\nnow @states.elems() states\n") if $DEBUG_VERBOSE > 0;
+  say("\n\nnow @states.elems() states\n") if $*DEBUG_VERBOSE > 0;
 
-  if $DEBUG_VERBOSE > 1 {
-    if $DEBUG_VERBOSE > 2 {
+  if $*DEBUG_VERBOSE > 1 {
+    if $*DEBUG_VERBOSE > 2 {
       mydump(@states);
     }
     for 1..^@states {
@@ -342,10 +363,10 @@ sub ORIG_resequence_states_to_skip_empty(@states) {
     }
   }
 
-  say("\n\nnow @states.elems() states mapping to $newend states\n") if $DEBUG_VERBOSE > 0;
+  say("\n\nnow @states.elems() states mapping to $newend states\n") if $*DEBUG_VERBOSE > 0;
 
-  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements" if $DEBUG_VERBOSE > 0;
-  say "  new length of state array is $newend, was @states.elems()" if $DEBUG_VERBOSE > 0;
+  say (now - ENTER now), "  remapping has @remap.grep(none(0)).elems() elements" if $*DEBUG_VERBOSE > 0;
+  say "  new length of state array is $newend, was @states.elems()" if $*DEBUG_VERBOSE > 0;
 
   return @remap;
 }
@@ -359,12 +380,12 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
   for 1..^@states {
     my $s = $_;
     my @state := @states[$_];
-    say "Skipping $_" if @state == 0 and $DEBUG_VERBOSE > 0;
+    say "Skipping $_" if @state == 0 and $*DEBUG_VERBOSE > 0;
     next if @state == 0;
     my $newpos = @remap[$_];
 
     if $newpos {
-      say "state $newpos is a clone of state $_" if $DEBUG_VERBOSE > 0;
+      say "state $newpos is a clone of state $_" if $*DEBUG_VERBOSE > 0;
 
       my int $eend = +@state;
       my int $e = 2;
@@ -374,7 +395,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
 
         if $to {
             @state[$e] = @remap[$to];
-            if $DEBUG_VERBOSE > 1 {
+            if $*DEBUG_VERBOSE > 1 {
               say "In $s -> $newpos remapping $ACTIONS[$act] $to -> @remap[$to]";
             }
         }
@@ -392,7 +413,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
                 && @state[$e + 2] == @state[$f + 2]
                 && @state[$e + 1] == @state[$f + 1] {
               # delete the duplicate edge
-              say("Deleting dup edge at $s $e/$f") if $DEBUG_VERBOSE > 0;
+              say("Deleting dup edge at $s $e/$f") if $*DEBUG_VERBOSE > 0;
               @state.splice($e, 3, []);
               $dups_deleted++;
               $f = $e;
@@ -414,7 +435,7 @@ sub ORIG_move_states_for_resequence(@states, @remap) {
 
 
 
-  say (now - ENTER now), "  deleted $dups_deleted duplicate edges" if $DEBUG_VERBOSE > 0;
+  say (now - ENTER now), "  deleted $dups_deleted duplicate edges" if $*DEBUG_VERBOSE > 0;
   @newstates;
 }
 
@@ -423,23 +444,32 @@ class HLLNFA {
   method save { @.states }
 }
 
+my @known_variants = <original steal_from_start_early steal_from_start_late>;
+my @*OPT_VARIANTS = <original>;
+my $*OPT_VARIANT;
+my &*GET_OPT_OUTPUT = -> Mu $nfa, $variant { $*OUT };
+
 sub my-optimize(Mu $nfa) {
+  my $variant = $*OPT_VARIANT;
+
+  my $*OUT = &*GET_OPT_OUTPUT($nfa, $variant);
+
   my @states = recursive-hllize($nfa.states);
 
   if @states <= 2 { return HLLNFA.new(:@states) }
 
-  if $DEBUG_VERBOSE > 0 {
-    say "BEGIN OF OPTIMIZATION";
+  if $*DEBUG_VERBOSE > 0 {
+    say "BEGIN OF OPTIMIZATION - variant: $variant";
   }
 
-  if $DEBUG_VERBOSE > 2 {
+  if $*DEBUG_VERBOSE > 2 {
     #dd :@states;
     mydump(@states);
   }
 
   my @remap = ORIG_find_single_epsilon_states(@states);
 
-  if $DEBUG_VERBOSE > 2 {
+  if $*DEBUG_VERBOSE > 2 {
     #dd :@states;
     mydump(@states);
   }
@@ -451,10 +481,16 @@ sub my-optimize(Mu $nfa) {
   #dd :@states, :@incoming;
   #dd :@states;
 
+  if $*DEBUG_VERBOSE > 2 {
+    mydump(@states);
+  }
+
   ORIG_steal_from_single_edge_states_behind_epsilon(@states, @incoming);
 
-
-  CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming);
+  if $variant.contains("steal_from_start_early") {
+    say "running steal_from_start_early variant";
+    CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming);
+  }
 
   #dd :@states;
 
@@ -467,12 +503,17 @@ sub my-optimize(Mu $nfa) {
 
   @states = ORIG_move_states_for_resequence(@states, @resequence);
 
-  if $DEBUG_VERBOSE > 2 {
+  if $variant.contains("steal_from_start_late") {
+    say "running steal_from_start_late variant";
+    CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming);
+  }
+
+  if $*DEBUG_VERBOSE > 2 {
     #dd :@states;
     mydump(@states);
   }
 
-  if $DEBUG_VERBOSE > 0 {
+  if $*DEBUG_VERBOSE > 0 {
     say "END OF OPTIMIZATION";
   }
 
@@ -534,55 +575,76 @@ sub my_protoregex_nfa(Mu $self, $name, Mu $nfa_class = $modified_nfa) {
     $nfa.optimize
 }
 
-my @all-nfas;
+class NFAFromGrammar is rw {
+    has $.states;
+    has $.nfa-name;
+    has $.basename;
+}
 
-sub output-nfas-for-code($name, Mu $m, $indent = "   ") {
+my NFAFromGrammar @all-nfas;
+
+sub output-nfas-for-code($name, Mu $m, $indent = "   ", :$basename_for_regen = $name, :$full_filter = Str) {
   say $indent ~ " name: " ~ $_ with $name;
+
   say "$indent   raw NFA: ", nqp::hllize($_).raku with $m.?NFA;
 
   if $m.?ALT_NFAS {
     my %alt_nfas := nqp::hllize($m.ALT_NFAS);
     for %alt_nfas {
       say "$indent   $_.key(): " ~ recursive-hllize($_.value()).raku;
-  
-      my $alt_nfa := my_alt_nfa($match, $m, $_.key);
-      my @states := recursive-hllize($alt_nfa.states);
-      @all-nfas.push($name => @states);
-      say $indent ~ "     instantiated: " ~ @states.raku;
 
-      if @states > 2 {
-        {
-          my $*OUT = "/tmp/optimizer.$($_.key).ported.txt".IO.open(:w);
-          mydump(@states);
-          $*OUT.close;
+      for @*OPT_VARIANTS -> $*OPT_VARIANT {
+        my $thename = @*OPT_VARIANTS > 1 ?? $name ~ "-opt-$*OPT_VARIANT" !! $name;
+
+        with $full_filter {
+          next if $name ne $full_filter && $thename ne $full_filter;
         }
 
-        {
-          my $*OUT = "/tmp/optimizer.$($_.key).orig.txt".IO.open(:w);
-          my $protoregex_nfa := my_alt_nfa($match, $m, $_.key, QRegex::NFA);
-          if $protoregex_nfa.save != 0 {
-            mydump($protoregex_nfa.save);
-          }
-          $*OUT.close;
-        }
+        my $alt_nfa := my_alt_nfa($match, $m, $_.key);
+        my @states := recursive-hllize($alt_nfa.states);
+        @all-nfas.push(NFAFromGrammar.new(nfa-name => $thename, states => @states, basename => $basename_for_regen));
+        say $indent ~ "     instantiated $thename: " ~ @states.raku;
       }
-      
+
+      #if @states > 2 {
+        #{
+        #  my $*OUT = "/tmp/optimizer.$($_.key).ported.txt".IO.open(:w);
+        #  mydump(@states);
+        #  $*OUT.close;
+        #}
+        #
+        #{
+        #  my $*OUT = "/tmp/optimizer.$($_.key).orig.txt".IO.open(:w);
+        #  my $protoregex_nfa := my_alt_nfa($match, $m, $_.key, QRegex::NFA);
+        #  if $protoregex_nfa.save != 0 {
+        #    mydump($protoregex_nfa.save);
+        #  }
+        #  $*OUT.close;
+        #}
+      #}
     }
   }
   
   if $m.?NESTED_CODES.DEFINITE {
     for 0..* Z nqp::hllize($m.NESTED_CODES) -> ($idx, $c) {
-      output-nfas-for-code($name ~ "[" ~ $idx ~ "]", $c, $indent ~ "  ");
+      output-nfas-for-code($name ~ "[" ~ $idx ~ "]", $c, $indent ~ "  ", :$basename_for_regen, :$full_filter);
     }
   }
 
-  my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
-  my $saved := $protoregex_nfa.save;
-  my @states = @$saved;
+  for @*OPT_VARIANTS -> $*OPT_VARIANT {
+    my $thename = @*OPT_VARIANTS > 1 ?? $name ~ "-opt-$*OPT_VARIANT" !! $name;
 
-  if @states > 2 && @states[0] != 0 && @states[1] != 0 {
-    @all-nfas.push(($name ~ " protoregex") => @states);
-    say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
+    with $full_filter {
+      return if $thename ne $full_filter && $name ne $full_filter && $name ~ " protoregex" ne $full_filter;
+    }
+
+    my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
+    my @states = recursive-hllize($protoregex_nfa.states);
+
+    if @states > 2 && @states[0] != 0 && @states[1] != 0 {
+      @all-nfas.push(NFAFromGrammar.new(nfa-name => ($thename ~ " protoregex"), states => @states, basename => $basename_for_regen));
+      say $indent ~ " instantiated protoregex_nfa: " ~ @states.raku;
+    }
   }
 }
 
@@ -799,17 +861,21 @@ class SimStateInfo is rw {
     }
 }
 
+my $*TRACK-PRED-EDGES = True;
+
 class NFASimState {
-    has @.states is rw;
+    has @.states is rw where $_.elems >= 2;
     has SimStateInfo @.active is rw;
     has str $.text   is rw;
     has int $.offset is rw;
     has $.parent-state is rw;
+    has $.nfa-name is rw;
+    has $.nfa-basename is rw;
 
     method gist {
         return {
             states => {
-                fates => @.states[0],
+                fates => +@.states[0],
                 states => +@.states - 1,
             },
             :@.active,
@@ -817,13 +883,14 @@ class NFASimState {
             :$.offset,
             parent-state => $.parent-state ?? {
                 offset => $.parent-state.offset
-            } !! Any
+            } !! Any,
+            :$.nfa-name, :$.nfa-basename,
         }.gist;
     }
 
     method fork($character) {
         NFASimState.new(
-            :@.states, :@.active, text => $.text ~ $character, :parent-state(self), :$.offset
+            :@.states, :@.active, text => $.text ~ $character, :parent-state(self), :$.offset, :$.nfa-name, :$.nfa-basename
         );
     }
 
@@ -874,7 +941,7 @@ class NFASimState {
 
                         @active-stack.push(SimStateInfo.new(
                             state-idx => .value[2],
-                            preds => (my EdgeId @ = $edge-id),
+                            preds =>  $*TRACK-PRED-EDGES ?? (my EdgeId @ = $edge-id) !! [],
                             created-by => self,
                         ));
                     }
@@ -892,7 +959,7 @@ class NFASimState {
         # get character in question
         my $char = $.text.substr($.offset, 1);
         my $nextst = NFASimState.new(
-            :@.states, :$.text, offset => $.offset + 1, parent-state => self
+            :@.states, :$.text, offset => $.offset + 1, parent-state => self, :$.nfa-name, :$.nfa-basename
         );
         my @active-stack = @.active;
         say $char.raku, " with ", +@active-stack, " states    ($(states-key(self)))" unless $quiet;
@@ -929,13 +996,15 @@ class NFASimState {
 
                 # Epsilons go on the active stack
                 with $seen-hash{$to} -> $seen {
-                    $seen.preds.push($edge-id);
+                    if $*TRACK-PRED-EDGES {
+                        $seen.preds.push($edge-id);
+                    }
                 }
                 else {
                     $states-array.push(
                         my $new-state = SimStateInfo.new(
                             state-idx => $to,
-                            preds => (my EdgeId @ = $edge-id),
+                            preds => $*TRACK-PRED-EDGES ?? (my EdgeId @ = $edge-id) !! [],
                             created-by => self,
                         )
                     );
@@ -949,41 +1018,157 @@ class NFASimState {
     }
 }
 
+sub multi-bool-choice-menu(@entries) {
+    my @toggles = False xx +@entries;
+    loop {
+        say "Make your choice...";
+        for @entries.pairs {
+            say "  ", (@toggles[.key] ?? "[X]" !! "[ ]"), " ", .value.key;
+        }
+        say "";
+        say "number: toggle an entry";
+        say "number other third: toggle some entries";
+        say "number..* / *..number: toggle from entry to end or beginning to entry";
+        say "number..other: toggle range of entries";
+        say "  (use ^ before and/or after .. to exclude ends)";
+        say "*: toggle all";
+        say "r: reset all to Off";
+        say "enter: done, accept changes";
+        say "q: abort";
+        say "";
+        my $choice = prompt "Choice: ";
+        given $choice {
+            when /^ (\d+)+ %% [" " | ","] $/ {
+                for @0 {
+                    @toggles[+$_] xor= True;
+                }
+            }
+            when /^ $<start>=[ "*" | \d+ ] $<exstart>=["^"?] ".." "."? $<exend>=["^"?] $<end>=[ "*" | \d+ ] $/ {
+                my $r = Range.new(
+                    $<start> eq "*" ?? 0 !! +$<start>,
+                    $<end> eq "*" ?? @toggles.end() !! +$<end>,
+                    :excludes-min($<exstart> ne ""),
+                    :excludes-max($<exend> ne ""),
+                );
+                say $r.raku;
 
-my @methods = Perl6::Grammar.^methods.sort(*.name);
-
-with @*ARGS[0] -> $filter {
-    my $count-before = +@methods;
-    @methods .= grep(*.name.contains($filter));
-    if not @methods {
-        say "filter $filter.raku() given on commandline matched no methods! There were $count-before methods available.";
+                @toggles[@$r] >>[xor=]>> True;
+            }
+            when /^ "*" $/ {
+                @toggles[] >>[xor=]>> True;
+            }
+            when "r" {
+                @toggles >>[=]>> False;
+            }
+            when "" | "enter" {
+                last;
+            }
+            when "q" {
+                return Nil;
+            }
+            default {
+                say "  !!! Unrecognized input $_";
+            }
+        }
     }
+
+    return (@entries Z @toggles).map({ .[0] if .[1] });
 }
 
-for @methods {
-  output-nfas-for-code($_.name, $_);
-}
+sub offer-nfa-choice-from-grammar(Mu $grammar, $filter, :$full_filter = Str) {
+    my @methods = Perl6::Grammar.^methods.sort(*.name);
 
-with @*ARGS[0] -> $filter {
-    say "all NFAs matching $filter.raku():";
-}
-else {
-    say "all NFAs:";
-}
-say("  ", .key.fmt("% 3d"), " ", (.value.value.elems - 1).fmt("% 7d"), " states: ", .value.key) for @all-nfas.pairs;
+    with $filter {
+        my $count-before = +@methods;
+        @methods .= grep(*.name.contains($filter));
+        if not @methods {
+            say "filter $filter.raku() given on commandline matched no methods! There were $count-before methods available.";
+        }
+    }
 
-my $desired-nfa = do if @all-nfas > 1 {
-    prompt("Choose an NFA to experiment with: ");
-}
-elsif @all-nfas == 1 {
-    0;
-}
-else {
-    say "got nothing :(";
-}
+    # if we re-run offer-nfa-choice, for example because we changed opt
+    # variants, we empty @all-nfas first
+    @all-nfas = Empty;
 
+    with $filter {
+        say "all NFAs matching $filter.raku():";
+    }
+    else {
+        say "all NFAs:";
+    }
+
+    for @methods {
+        output-nfas-for-code($_.name, $_, :$full_filter);
+    }
+
+    my @entries = do ("  ", .key.fmt("% 3d"), " ", (.value.states.elems - 1).fmt("% 7d"), " states: ", .value.nfa-name).join("") => .value for @all-nfas.pairs;
+
+    my $desired-nfa = do if @all-nfas > 1 {
+        my $choice;
+        loop {
+            .key.say for @entries;
+            say "";
+            say "s, j: Save NFAs to files (States list or Json)";
+            say "q: Abort";
+
+            $choice = prompt "Choice: ";
+
+            if $choice eq "s" | "j" {
+                my @choices = multi-bool-choice-menu(@entries);
+                my $prefix = ("A".."Z").roll(8).join("");
+                my $orig-out = $*OUT;
+
+                for @choices {
+                    my $ending = $choice eq "s" ?? "txt" !! "json";
+                    my $fname = ("nfa_" ~ $prefix ~ "-" ~ $_.value.nfa-name.subst(" ", "_", :g) ~ "-statelist." ~ $ending).IO;
+                    if $choice eq "s" {
+                        my $*OUT = $fname.open(:w);
+                        mydump(.value.states);
+                        $*OUT.close;
+                    }
+                    else {
+                        $fname.spurt(stateslist-to-json(.value.states));
+                    }
+                    $orig-out.say: "saved $_.key() to $fname.absolute(): $fname.s() bytes";
+                }
+                say "";
+            }
+            elsif $choice eq any(@entries.keys) {
+                last;
+            }
+            elsif $choice eq "q" {
+                return;
+            }
+            else {
+                say "  !!! Unrecognized input $choice";
+            }
+        }
+
+        $choice;
+    }
+    elsif @all-nfas == 1 {
+        0;
+    }
+    else {
+        say "got nothing :(";
+    }
+
+    my $simstate;
+
+    if $desired-nfa eq any(@all-nfas.keys) {
+        my $the-nfa = @all-nfas[$desired-nfa];
+        $simstate = NFASimState.start($the-nfa.states, text => '');
+        $simstate.nfa-name = $the-nfa.nfa-name;
+        $simstate.nfa-basename = $the-nfa.basename;
+    }
+
+    return $simstate
+}
 
 my %found-states;
+
+
+my $simstate; 
 
 
 sub states-key(NFASimState $state) {
@@ -1006,233 +1191,317 @@ sub generate-futures($state, @spk) {
     return %futures;
 }
 
+sub do-random-exploration(@start-states, :%seen) {
+    say " ==> Will automatically explore the NFA's state space.";
+    my NFASimState @active = @start-states;
 
-my $simstate; 
+    my $*TRACK-PRED-EDGES = False;
 
-if $desired-nfa eq any(@all-nfas.keys) {
-   $simstate = NFASimState.start(@all-nfas[$desired-nfa].value, text => '');
-}
+    my $total-added = 0;
+    my $longest = 0;
 
+    while @active {
+        my NFASimState $item = @active.shift;
 
-while $simstate {
-    my @possible-edges = $simstate.all-active-edges();
-    # say "possible edges: ", @possible-edges;
-    my %splitpoints;
-    @possible-edges.map({ split-apart %splitpoints, $_.value });
-    my @spk = %splitpoints.keys.sort;
-
-    my @cclasses = @possible-edges
-        .map(*.value)
-        .map(&generate-possible-matching-characters)
-        .grep(CClass)
-        .map(*.cclass_id)
-        .unique
-        .map({ %cclass_names{$_} });
-
-    say "current state: ", $simstate.gist;
-
-    say "";
-    say "Current text:";
-    say "  ", $simstate.text.raku;
-    say "";
-
-    my $should-step = True;
-
-    if $simstate.text.chars <= $simstate.offset || $simstate.active == 0 {
-        my @inputs;
-        if !@spk || $simstate.active == 0 {
-            say "";
-            say "The NFA has finished running.";
-        }
-        elsif @spk {
-            say "";
-            say "Possible theoretical inputs:";
-            say "";
-
-            my %futures = generate-futures($simstate, @spk);
-
-            for %futures.pairs.sort -> $f {
-                my @examples;
-                with %found-states{$f.key} -> $_ {
-                    @examples = .grep({ !.starts-with($simstate.text) && .chars != $simstate.text.chars + 1 }).pick(5).map(*.raku);
-                }
-                if @examples {
-                    say +@inputs, ": ", $f.key, "    (ex: ", (@examples || Empty).join(", "), ")";
-                }
-                else {
-                    say +@inputs, ": ", $f.key;
-                }
-                say "    " ~ $f.value.map(*.[0].raku).join(" ");
-                say "";
-                @inputs.push($f.value[0][0]);
+        with %seen{states-key($item)} -> $old {
+            # say "we already had states for key $(states-key($item)): ", $old.map(*.text.raku).join(", ");
+            if $old.elems > 4 {
+                next;
             }
-
-            say " ... also valid: stuff from cclass $_" for @cclasses;
-            say "" if @cclasses;
-
-            say "c: Enter your own";
+            elsif rand < 0.8e0 {
+                next;
+            }
         }
 
-        say "b: go back one";
-        say "s: go back to the start";
-        say "a: automatically explore";
-        say "e: show edges of currently active states";
-        say "q: stop";
+        my @possible-edges = $item.all-active-edges();
+        my %splitpoints;
+        @possible-edges.map({ split-apart %splitpoints, $_.value });
+        my @spk = %splitpoints.keys.sort;
 
-        my $choice = prompt "Make your choice: ";
-        last without $choice;
-        if $choice eq "c" {
-            my $char = prompt "Which character(s)? ";
-            next without $char;
-            $simstate .= fork($char);
-            say " ==> advancing text: $simstate.text().raku()";
-        }
-        elsif $choice == any(@inputs.keys) {
-            $simstate .= fork(@inputs[$choice]);
-        }
-        elsif $choice eq "b" {
-            $simstate = $simstate.parent-state.parent-state;
-            $should-step = False;
-            say " ==> Went back one step, text is now $simstate.text().raku()";
-        }
-        elsif $choice eq "s" {
-            $simstate = NFASimState.start($simstate.states);
-            $should-step = False;
-            say " ==> Returned to start";
-        }
-        elsif $choice eq "q" {
-            say " ==> Quitting ...";
-            say "";
-            say "Text so far: $simstate.text.raku()";
-            last;
-        }
-        elsif $choice eq "a" {
-            say " ==> Will automatically explore the NFA's state space.";
-            my NFASimState @active = $simstate;
-            my %seen;
+        if @spk {
+            my %futures = generate-futures($item, @spk);
 
-            my $total-added = 0;
-            my $longest = 0;
-
-            while @active {
-                my NFASimState $item = @active.shift;
-
-                with %seen{states-key($item)} -> $old {
-                    # say "we already had states for key $(states-key($item)): ", $old.map(*.text.raku).join(", ");
-                    if $old.elems > 4 {
-                        next;
-                    }
-                    elsif rand < 0.8e0 {
-                        next;
-                    }
-                }
-
-                my @possible-edges = $item.all-active-edges();
-                my %splitpoints;
-                @possible-edges.map({ split-apart %splitpoints, $_.value });
-                my @spk = %splitpoints.keys.sort;
-
-                if @spk {
-                    my %futures = generate-futures($item, @spk);
-
-                    # randomize order of things picked
-                    my @suggestions;
-                    for %futures.pairs.pick(*) -> $f {
-                        for $f.value.list.pick(*) {
-                            @suggestions.push(.[1]);
-                        }
-                    }
-                    @suggestions = @suggestions.unique(as => &states-key);
-                    @active.push($_) for @suggestions.pick(*);
-                }
-
-                $total-added++;
-                %seen{states-key($item)}.push($item);
-                $longest max= $item.text.chars;
-
-                if $total-added %% 10 {
-                    say "  ... already seen $total-added.fmt("% 4d") examples for %seen.elems().fmt("% 5d") different states. @active.elems().fmt("% 7d") items in the queue. Longest string $longest";
-                    @active .= pick(*).sort(-*.text.chars);
-
-                    if $total-added >= 500 {
-                        say " ... aborting search so we don't explode our memory!";
-                        @active = @active[0];
-                        last;
-                    }
+            # randomize order of things picked
+            my @suggestions;
+            for %futures.pairs.pick(*) -> $f {
+                for $f.value.list.pick(*) {
+                    @suggestions.push(.[1]);
                 }
             }
-
-            say "Here's all the combinations of states I could find:";
-            for %seen.pairs.sort {
-                say "States $_.key()";
-                say "  ", .value.list.map(*.text.raku()).join(",  ");
-                say "";
-            }
-            say "";
-
-            loop {
-                say "s: save to a .json file";
-                say "r: pick a random state as the new current state";
-                say "any other input: do nothing and return to menu";
-                say "";
-                my $choice = prompt "What do you want to do with it? ";
-                if $choice eq "s" {
-                    my %seen_to_serialize = %seen.pairs.map({ .key => .value.list.map(*.text) });
-                    my $fn = prompt "filename, please (or press enter for random): ";
-                    if $fn eq "" {
-                        my $nfn = ("nfa_exploration_" ~ ("A".."Z").pick(8).join("") ~ ".json").IO;
-                        say "Saving to $nfn.absolute()";
-                        $nfn.spurt(to-json(%seen_to_serialize, :pretty));
-                    }
-                    elsif $fn.IO.e {
-                        say "OK to overwrite $fn.IO.absolute() ($fn.IO.s() bytes big)?";
-                        say "y: yes";
-                        say "n: no, abort";
-                        say "r: random new name";
-                        my $ch2 = prompt "> ";
-                        if $ch2 eq "y" {
-                            $fn.IO.spurt(to-json(%seen_to_serialize, :pretty))
-                        }
-                        elsif $ch2 eq "n" {
-                            # nothing here
-                            next;
-                        }
-                        elsif $ch2 eq "r" {
-                            my $nfn = ($fn.IO.basename ~ ("A".."Z").pick(8).join("") ~ ".json").IO;
-                            say "Saving to $nfn.absolute()";
-                            $nfn.spurt(to-json(%seen_to_serialize, :pretty));
-                        }
-                    }
-                    else {
-                        say " ==> Returning to menu!";
-                        last;
-                    }
-                }
-                elsif $choice eq "r" {
-                    $simstate = %seen.pairs.pick.value.pick;
-                    say " ==> Randomly chose this state:";
-                    say "    $simstate.gist()";
-                }
-                else {
-                    say " ==> Returning to menu!";
-                    last;
-                }
-            }
-
-            $should-step = False;
+            @suggestions = @suggestions.unique(as => &states-key);
+            @active.push($_) for @suggestions.pick(*);
         }
-        elsif $choice eq "e" {
-            mydump($simstate.states, only_states => $simstate.active.map(*.state-idx));
-            $should-step = False;
-        }
-        else {
-            say "Did not recognize input $choice.raku()";
+
+        $total-added++;
+        %seen{states-key($item)}.push($item);
+        $longest max= $item.text.chars;
+
+        if $total-added %% 10 {
+            say "  ... already seen $total-added.fmt("% 4d") examples for %seen.elems().fmt("% 5d") different states. @active.elems().fmt("% 7d") items in the queue. Longest string $longest";
+            @active .= pick(*).sort(-*.text.chars);
+
+            if $total-added >= 500 {
+                say " ... aborting search so we don't explode our memory!";
+                @active = @active[0];
+                last;
+            }
         }
     }
 
-    if $should-step {
-        say "... running step ...";
-        $simstate .= step;
+    say "Here's all the combinations of states I could find:";
+    for %seen.pairs.sort {
+        say "States $_.key()";
+        say "  ", .value.list.map(*.text.raku()).join(",  ");
         say "";
+    }
+    say "";
+
+    loop {
+        say "s: save to a .json file";
+        say "r: pick a random state as the new current state";
+        say "c: continue exploring some more";
+        say "any other input: do nothing and return to menu";
+        say "";
+        my $choice = prompt "What do you want to do with it? ";
+        if $choice eq "s" {
+            my %seen_to_serialize = %seen.pairs.map({ .key => .value.list.map(*.text) });
+            my $fn = prompt "filename, please (or press enter for random): ";
+            if $fn eq "" {
+                my $nfn = ("nfa_exploration_" ~ ("A".."Z").pick(8).join("") ~ ".json").IO;
+                say "Saving to $nfn.absolute()";
+                $nfn.spurt(to-json(%seen_to_serialize, :pretty));
+            }
+            elsif $fn.IO.e {
+                say "OK to overwrite $fn.IO.absolute() ($fn.IO.s() bytes big)?";
+                say "y: yes";
+                say "n: no, abort";
+                say "r: random new name";
+                my $ch2 = prompt "> ";
+                if $ch2 eq "y" {
+                    $fn.IO.spurt(to-json(%seen_to_serialize, :pretty))
+                }
+                elsif $ch2 eq "n" {
+                    # nothing here
+                    next;
+                }
+                elsif $ch2 eq "r" {
+                    my $nfn = ($fn.IO.basename ~ ("A".."Z").pick(8).join("") ~ ".json").IO;
+                    say "Saving to $nfn.absolute()";
+                    $nfn.spurt(to-json(%seen_to_serialize, :pretty));
+                }
+            }
+            else {
+                say " ==> Returning to menu!";
+                last;
+            }
+        }
+        elsif $choice eq "r" {
+            $simstate = %seen.pairs.pick.value.pick;
+            say " ==> Randomly chose this state:";
+            say "    $simstate.gist()";
+        }
+        elsif $choice eq "c" {
+            return do-random-exploration(%seen.pairs.map(*.value.Slip).list.grep(*.active > 0), :%seen);
+        }
+        else {
+            say " ==> Returning to menu!";
+            last;
+        }
+    }
+}
+
+my $filter = @*ARGS[0];
+
+my Mu $chosen-grammar := Perl6::Grammar;
+
+$simstate = offer-nfa-choice-from-grammar($chosen-grammar, $filter);
+main-menu($simstate);
+
+sub main-menu($simstate is copy) {
+    while $simstate {
+        my @possible-edges = $simstate.all-active-edges();
+        # say "possible edges: ", @possible-edges;
+        my %splitpoints;
+        @possible-edges.map({ split-apart %splitpoints, $_.value });
+        my @spk = %splitpoints.keys.sort;
+
+        my @cclasses = @possible-edges
+            .map(*.value)
+            .map(&generate-possible-matching-characters)
+            .grep(CClass)
+            .map(*.cclass_id)
+            .unique
+            .map({ %cclass_names{$_} });
+
+        say "current state: ", $simstate.gist;
+
+        say "";
+        say "Current text:";
+        say "  ", $simstate.text.raku;
+        say "";
+
+        my $should-step = True;
+
+        if $simstate.text.chars <= $simstate.offset || $simstate.active == 0 {
+            my @inputs;
+            if !@spk || $simstate.active == 0 {
+                say "";
+                say "The NFA has finished running.";
+            }
+            elsif @spk {
+                say "";
+                say "Possible theoretical inputs:";
+                say "";
+
+                my %futures = generate-futures($simstate, @spk);
+
+                for %futures.pairs.sort -> $f {
+                    my @examples;
+                    with %found-states{$f.key} -> $_ {
+                        @examples = .grep({ !.starts-with($simstate.text) && .chars != $simstate.text.chars + 1 }).pick(5).map(*.raku);
+                    }
+                    if @examples {
+                        say +@inputs, ": ", $f.key, "    (ex: ", (@examples || Empty).join(", "), ")";
+                    }
+                    else {
+                        say +@inputs, ": ", $f.key;
+                    }
+                    say "    " ~ $f.value.map(*.[0].raku).join(" ");
+                    say "";
+                    @inputs.push($f.value[0][0]);
+                }
+
+                say " ... also valid: stuff from cclass $_" for @cclasses;
+                say "" if @cclasses;
+
+                say "c: Enter your own";
+            }
+
+            say "b: go back one";
+            say "s: go back to the start";
+            say "a: automatically explore";
+            say "e: show edges of currently active states";
+            say "o: re-do optimization with variants turned on or off";
+            say "q: stop";
+
+            my $choice = prompt "Make your choice: ";
+            last without $choice;
+            if $choice eq "c" {
+                my $char = prompt "Which character(s)? ";
+                next without $char;
+                $simstate .= fork($char);
+                say " ==> advancing text: $simstate.text().raku()";
+            }
+            elsif $choice == any(@inputs.keys) {
+                $simstate .= fork(@inputs[$choice]);
+            }
+            elsif $choice eq "b" {
+                $simstate = $simstate.parent-state.parent-state;
+                $should-step = False;
+                say " ==> Went back one step, text is now $simstate.text().raku()";
+            }
+            elsif $choice eq "s" {
+                $simstate = NFASimState.start($simstate.states);
+                $should-step = False;
+                say " ==> Returned to start";
+            }
+            elsif $choice eq "q" {
+                say " ==> Quitting ...";
+                say "";
+                say "Text so far: $simstate.text.raku()";
+                last;
+            }
+            elsif $choice eq "a" {
+                do-random-exploration([$simstate]);
+
+                $should-step = False;
+            }
+            elsif $choice eq "e" {
+                mydump($simstate.states, only_states => $simstate.active.map(*.state-idx));
+                $should-step = False;
+            }
+            elsif $choice eq "o" {
+                temp $*DEBUG_VERBOSE;
+                my $save = False;
+                temp &*GET_OPT_OUTPUT;
+                loop {
+                    say "Available variants:";
+                    for @known_variants.pairs {
+                        say $_.key, ": ", ($_.value eq any(@*OPT_VARIANTS) ?? "[X]" !! "[ ]"), " ", $_.value;
+                    }
+                    say "v, vv, vvv: run optimizer with verbosity", ($*DEBUG_VERBOSE > 0 ?? " [$*DEBUG_VERBOSE]" !! "");
+                    say "q: run optimizer without output", ($*DEBUG_VERBOSE == 0 ?? " [X]" !! "");
+                    say "s: [$($save ?? "X" !! " ")] save optimizer output to files";
+                    say "";
+                    say "k: accept new variants and re-run optimizer";
+                    say "anything else: abort";
+                    my $choice = prompt "Choose action: ";
+                    if $choice eq any(@known_variants.keys) {
+                        if @known_variants[$choice] eq any(@*OPT_VARIANTS) {
+                            @*OPT_VARIANTS .= grep(none(@known_variants[$choice]));
+                        }
+                        else {
+                            @*OPT_VARIANTS.push(@known_variants[$choice]);
+                        }
+                    }
+                    elsif $choice eq "k" {
+                        my $orig-out = $*OUT;
+                        my Pair @output_files;
+                        my $prefix = ("A".."Z").roll(8).join("");
+                        if $save {
+                            &*GET_OPT_OUTPUT = -> Mu $nfa, $variant {
+                                with @output_files.tail {
+                                    .value.close;
+                                    $orig-out.say: "  debugger output in $_.key.absolute(): $_.key.s() bytes";
+                                }
+                                my $fname = ("nfa_opt_" ~ $prefix ~ "-" ~ $simstate.nfa-name.subst(" ", "_", :g) ~ "-opt-" ~ $variant ~ ".optimize.txt").IO;
+                                @output_files.push($fname => my $res = $fname.open(:w));
+                                $res;
+                            };
+                        }
+                        my $new = offer-nfa-choice-from-grammar($chosen-grammar, $simstate.nfa-basename, full_filter => $simstate.nfa-name);
+                        @output_files.tail.value.close if @output_files;
+                        if $save {
+                            say "Saved optimizer outputs:";
+                            for @output_files {
+                                say "  debugger output in $_.key.absolute(): $_.key.s() bytes";
+                            }
+                        }
+                        with $new {
+                            $simstate = $new;
+                        }
+                        else {
+                            say " ... No simstate gotten from your previous choice :(";
+                        }
+                        $should-step = False;
+                        last;
+                    }
+                    elsif $choice eq any(<v vv vvv vvvv>) {
+                        $*DEBUG_VERBOSE = $choice.chars;
+                        say " ==> Verbosity is now $*DEBUG_VERBOSE";
+                    }
+                    elsif $choice eq "q" {
+                        $*DEBUG_VERBOSE = 0;
+                        say " ==> Verbosity is now $*DEBUG_VERBOSE";
+                    }
+                    elsif $choice eq "s" {
+                        $save = not $save;
+                    }
+                    else {
+                        say " ==> Aborting";
+                        last;
+                    }
+                }
+            }
+            else {
+                say "Did not recognize input $choice.raku()";
+            }
+        }
+
+        if $should-step {
+            say "... running step ...";
+            $simstate .= step;
+            say "";
+        }
     }
 }
