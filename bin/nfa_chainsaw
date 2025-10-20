@@ -2,12 +2,15 @@
 use nqp;
 
 use CoreHackers::NfaChainsaw::Utils::UserInterface;
+use CoreHackers::NfaChainsaw::NfaRunner;
+use CoreHackers::NfaChainsaw::Optimizer;
 use CoreHackers::NfaChainsaw::Extractor;
 use CoreHackers::NfaChainsaw::NFA;
 
 use JSON::Fast;
 
-
+my %cclass_names := %CoreHackers::NfaChainsaw::NFA::cclass_names;
+my @known_variants := @CoreHackers::NfaChainsaw::Optimizer::known_variants;
 
 my $*DEBUG_VERBOSE = 0;
 
@@ -113,15 +116,13 @@ sub offer-nfa-choice-from-grammar(Mu $grammar, $filter, :$full_filter = Str) {
 
 my %found-states;
 
-my $simstate; 
-
 sub generate-futures($state, @spk) {
     my %futures;
 
     for chr(ord(@spk[0]) - 1), |@spk {
         # say "forking with $_.raku() (", ($state.text ~ $_).raku, ")";
         my $forked = $state.fork($_).step(:quiet);
-        my $states-key = states-key($forked);
+        my $states-key = $forked.states-key;
         %futures{$states-key}.push([$_, $forked]);
         if $forked.text.chars > 1 {
             %found-states{$states-key}.push($forked.text);
@@ -131,7 +132,7 @@ sub generate-futures($state, @spk) {
     return %futures;
 }
 
-sub do-random-exploration(@start-states, :%seen) {
+sub do-random-exploration(@start-states, :%seen --> NFASimState) {
     say " ==> Will automatically explore the NFA's state space.";
     my NFASimState @active = @start-states;
 
@@ -140,11 +141,13 @@ sub do-random-exploration(@start-states, :%seen) {
     my $total-added = 0;
     my $longest = 0;
 
+    my $simstate;
+
     while @active {
         my NFASimState $item = @active.shift;
 
-        with %seen{states-key($item)} -> $old {
-            # say "we already had states for key $(states-key($item)): ", $old.map(*.text.raku).join(", ");
+        with %seen{$item.states-key} -> $old {
+            # say "we already had states for key $($item.states-key): ", $old.map(*.text.raku).join(", ");
             if $old.elems > 4 {
                 next;
             }
@@ -168,12 +171,12 @@ sub do-random-exploration(@start-states, :%seen) {
                     @suggestions.push(.[1]);
                 }
             }
-            @suggestions = @suggestions.unique(as => &states-key);
+            @suggestions = @suggestions.unique(as => *.states-key);
             @active.push($_) for @suggestions.pick(*);
         }
 
         $total-added++;
-        %seen{states-key($item)}.push($item);
+        %seen{$item.states-key}.push($item);
         $longest max= $item.text.chars;
 
         if $total-added %% 10 {
@@ -230,6 +233,10 @@ sub do-random-exploration(@start-states, :%seen) {
                     $nfn.spurt(to-json(%seen_to_serialize, :pretty));
                 }
             }
+            elsif $fn.so {
+                say "Saving to $fn.IO.absolute()";
+                $fn.IO.spurt(to-json(%seen_to_serialize, :pretty))
+            }
             else {
                 say " ==> Returning to menu!";
                 last;
@@ -248,9 +255,15 @@ sub do-random-exploration(@start-states, :%seen) {
             last;
         }
     }
+
+    return $simstate;
 }
 
-sub main-menu($simstate is copy) {
+
+my &*GET_OPT_OUTPUT;
+my @*OPT_VARIANTS = <original>;
+
+sub main-menu($simstate is copy, Mu $chosen-grammar) {
     while $simstate {
         my @possible-edges = $simstate.all-active-edges();
         # say "possible edges: ", @possible-edges;
@@ -345,7 +358,9 @@ sub main-menu($simstate is copy) {
                 last;
             }
             elsif $choice eq "a" {
-                do-random-exploration([$simstate]);
+                with do-random-exploration([$simstate]) -> $newstate {
+                    $simstate = $newstate;
+                }
 
                 $should-step = False;
             }
@@ -390,7 +405,7 @@ sub main-menu($simstate is copy) {
                                 my $fname = ("nfa_opt_" ~ $prefix ~ "-" ~ $simstate.nfa-name.subst(" ", "_", :g) ~ "-opt-" ~ $variant ~ ".optimize.txt").IO;
                                 @output_files.push($fname => my $res = $fname.open(:w));
                                 $res;
-                            };
+                            }
                         }
                         my $new = offer-nfa-choice-from-grammar($chosen-grammar, $simstate.nfa-basename, full_filter => $simstate.nfa-name);
                         @output_files.tail.value.close if @output_files;
@@ -440,15 +455,13 @@ sub main-menu($simstate is copy) {
 }
 
 
-multi sub MAIN(Str $filter, Str $grammar = "Perl6::Grammar") {
-    use Perl6::Grammar:from<nqp>;
-
-    my $filter = @*ARGS[0];
+multi sub MAIN(Str $filter = "", Str $grammar = "Perl6::Grammar") {
+    use Perl6::Grammar:from<NQP>;
 
     my Mu $chosen-grammar := Perl6::Grammar;
 
     my @*all-nfas;
 
-    $simstate = offer-nfa-choice-from-grammar($chosen-grammar, $filter);
-    main-menu($simstate);
+    my $simstate = offer-nfa-choice-from-grammar($chosen-grammar, $filter);
+    main-menu($simstate, $chosen-grammar);
 }
