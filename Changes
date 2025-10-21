@@ -2,5 +2,8 @@ Revision history for CoreHackers::NfaChainsaw
 
 {{$NEXT}}
 
+0.0.1.1  2025-10-21T02:54:49+02:00
+    - Fix test dependency for Test::META
+
 0.0.1  2025-10-21T02:52:17+02:00
     - Initial version
