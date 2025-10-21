@@ -1,3 +1,5 @@
+[![Actions Status](https://github.com/timo/corehackers-nfachainsaw/actions/workflows/linux.yml/badge.svg)](https://github.com/timo/corehackers-nfachainsaw/actions) [![Actions Status](https://github.com/timo/corehackers-nfachainsaw/actions/workflows/macos.yml/badge.svg)](https://github.com/timo/corehackers-nfachainsaw/actions) [![Actions Status](https://github.com/timo/corehackers-nfachainsaw/actions/workflows/windows.yml/badge.svg)](https://github.com/timo/corehackers-nfachainsaw/actions)
+
 NAME
 ====
 
