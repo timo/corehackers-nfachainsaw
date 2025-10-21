@@ -1,6 +1,12 @@
+unit module CoreHackers::NfaChainsaw::Optimizer::CustomOptimizations;
+
 use nqp;
 
-unit module CoreHackers::NfaChainsaw::Optimizer::CustomOptimizations;
+use CoreHackers::NfaChainsaw::NFA;
+
+
+my $ACTIONS := $CoreHackers::NfaChainsaw::NFA::ACTIONS;
+
 
 sub CUSTOM_steal_edges_from_all_states_epsilon_reachable_from_start(@states, @incoming) is export {
   my $removed = 0;

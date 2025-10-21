@@ -1,0 +1,4 @@
+.precomp
+nfa_opt_*
+nfa_exploration_*json
+nfa_*statelist*

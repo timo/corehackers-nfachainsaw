@@ -1,14 +1,14 @@
 use nqp;
+
+use CoreHackers::NfaChainsaw::Optimizer;
+use CoreHackers::NfaChainsaw::NFA;
+
 use Perl6::Grammar:from<NQP>;
 use QRegex:from<NQP>;
 
-my $match = Perl6::Grammar.new;
-
-my Mu $protoregex_meth := $match.^find_method("!protoregex_table");
-
 my Mu $qregex_nfa_class := QRegex::NFA;
 
-my $modified_nfa = $qregex_nfa_class but role { method optimize { return my-optimize(self); } }
+my $modified_nfa = $qregex_nfa_class but role { method optimize { return CoreHackers::NfaChainsaw::Optimizer::my-optimize(self); } }
 
 
 sub my_alt_nfa(Mu $self, Mu $regex, str $name, Mu $nfa_class = $modified_nfa) {
@@ -72,24 +72,26 @@ class NFAFromGrammar is rw {
     has $.basename;
 }
 
-sub output-nfas-for-code($name, Mu $m, $indent = "   ", :$basename_for_regen = $name, :$full_filter = Str) {
+sub output-nfas-for-code(Mu $grammar, Str $name, Mu $method, $indent = "   ", :$basename_for_regen = $name, :$full_filter = Str) is export {
+  my @variants = @*OPT_VARIANTS // <original>;
+
   say $indent ~ " name: " ~ $_ with $name;
 
-  say "$indent   raw NFA: ", nqp::hllize($_).raku with $m.?NFA;
+  say "$indent   raw NFA: ", nqp::hllize($_).raku with $method.?NFA;
 
-  if $m.?ALT_NFAS {
-    my %alt_nfas := nqp::hllize($m.ALT_NFAS);
+  if $method.?ALT_NFAS {
+    my %alt_nfas := nqp::hllize($method.ALT_NFAS);
     for %alt_nfas {
       say "$indent   $_.key(): " ~ recursive-hllize($_.value()).raku;
 
-      for @*OPT_VARIANTS -> $*OPT_VARIANT {
-        my $thename = @*OPT_VARIANTS > 1 ?? $name ~ "-opt-$*OPT_VARIANT" !! $name;
+      for @variants -> $*OPT_VARIANT {
+        my $thename = @variants > 1 ?? $name ~ "-opt-$*OPT_VARIANT" !! $name;
 
         with $full_filter {
           next if $name ne $full_filter && $thename ne $full_filter;
         }
 
-        my $alt_nfa := my_alt_nfa($match, $m, $_.key);
+        my $alt_nfa := my_alt_nfa($grammar, $method, $_.key);
         my @states := recursive-hllize($alt_nfa.states);
         @*all-nfas.push(NFAFromGrammar.new(nfa-name => $thename, states => @states, basename => $basename_for_regen));
         say $indent ~ "     instantiated $thename: " ~ @states.raku;
@@ -97,20 +99,20 @@ sub output-nfas-for-code($name, Mu $m, $indent = "   ", :$basename_for_regen = $
     }
   }
   
-  if $m.?NESTED_CODES.DEFINITE {
-    for 0..* Z nqp::hllize($m.NESTED_CODES) -> ($idx, $c) {
-      output-nfas-for-code($name ~ "[" ~ $idx ~ "]", $c, $indent ~ "  ", :$basename_for_regen, :$full_filter);
+  if $method.?NESTED_CODES.DEFINITE {
+    for 0..* Z nqp::hllize($method.NESTED_CODES) -> ($idx, $c) {
+      output-nfas-for-code($grammar, $name ~ "[" ~ $idx ~ "]", $c, $indent ~ "  ", :$basename_for_regen, :$full_filter);
     }
   }
 
-  for @*OPT_VARIANTS -> $*OPT_VARIANT {
+  for @variants -> $*OPT_VARIANT {
     my $thename = @*OPT_VARIANTS > 1 ?? $name ~ "-opt-$*OPT_VARIANT" !! $name;
 
     with $full_filter {
       return if $thename ne $full_filter && $name ne $full_filter && $name ~ " protoregex" ne $full_filter;
     }
 
-    my $protoregex_nfa := my_protoregex_nfa($match, $m.name);
+    my $protoregex_nfa := my_protoregex_nfa($grammar, $method.name);
     my @states = recursive-hllize($protoregex_nfa.states);
 
     if @states > 2 && @states[0] != 0 && @states[1] != 0 {

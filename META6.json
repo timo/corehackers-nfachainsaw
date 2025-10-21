@@ -1,0 +1,33 @@
+{
+  "authors": [
+    "Timo Paulssen"
+  ],
+  "build-depends": [
+  ],
+  "depends": [
+    "JSON::Fast"
+  ],
+  "description": "Utility for introspecting NQP's NFAs in Rakudo",
+  "license": "Artistic-2.0",
+  "name": "CoreHackers::NfaChainsaw",
+  "perl": "6.d",
+  "provides": {
+    "CoreHackers::NfaChainsaw::Extractor": "lib/CoreHackers/NfaChainsaw/Extractor.rakumod",
+    "CoreHackers::NfaChainsaw::NFA": "lib/CoreHackers/NfaChainsaw/NFA.rakumod",
+    "CoreHackers::NfaChainsaw::NfaRunner": "lib/CoreHackers/NfaChainsaw/NfaRunner.rakumod",
+    "CoreHackers::NfaChainsaw::Optimizer": "lib/CoreHackers/NfaChainsaw/Optimizer.rakumod",
+    "CoreHackers::NfaChainsaw::Optimizer::CustomOptimizations": "lib/CoreHackers/NfaChainsaw/Optimizer/CustomOptimizations.rakumod",
+    "CoreHackers::NfaChainsaw::Optimizer::NqpOptimizer": "lib/CoreHackers/NfaChainsaw/Optimizer/NqpOptimizer.rakumod",
+    "CoreHackers::NfaChainsaw::Utils::UserInterface": "lib/CoreHackers/NfaChainsaw/Utils/UserInterface.rakumod"
+  },
+  "resources": [
+  ],
+  "source-url": "git@gist.github.com:ca341da345d0c72661165105cecf2d74.git",
+  "tags": [
+  ],
+  "test-depends": [
+    "Test::Coverage",
+    "Test::Output:ver<1.3>:auth<zef:lizmat>"
+  ],
+  "version": "0.0.1"
+}

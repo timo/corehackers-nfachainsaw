@@ -1,16 +1,22 @@
 unit module CoreHackers::NfaChainsaw::Optimizer;
 
+use CoreHackers::NfaChainsaw::NFA;
+use CoreHackers::NfaChainsaw::Optimizer::NqpOptimizer;
+use CoreHackers::NfaChainsaw::Optimizer::CustomOptimizations;
 
-my @known_variants = <original steal_from_start_early steal_from_start_late>;
+
+our @known_variants = <original steal_from_start_early steal_from_start_late>;
 my @*OPT_VARIANTS = <original>;
 my $*OPT_VARIANT;
-my &*GET_OPT_OUTPUT = -> Mu $nfa, $variant { $*OUT };
+my &*GET_OPT_OUTPUT = -> Mu $nfa, $variant { False };
 
-
-sub my-optimize(Mu $nfa) {
+our sub my-optimize(Mu $nfa) {
   my $variant = $*OPT_VARIANT;
 
-  my $*OUT = &*GET_OPT_OUTPUT($nfa, $variant);
+  if &*GET_OPT_OUTPUT && &*GET_OPT_OUTPUT($nfa, $variant) -> $*OUT {
+    my &*GET_OPT_OUTPUT = -> Mu $nfa, $variant { False };
+    return my-optimize($nfa);
+  }
 
   my @states = recursive-hllize($nfa.states);
 

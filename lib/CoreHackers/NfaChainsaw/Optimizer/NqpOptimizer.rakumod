@@ -1,6 +1,10 @@
+unit module CoreHackers::NfaChainsaw::Optimizer::NqpOptimizer;
+
 use nqp;
 
-unit module CoreHackers::NfaChainsaw::Optimizer::NqpOptimizer;
+use CoreHackers::NfaChainsaw::NFA;
+
+my $ACTIONS := $CoreHackers::NfaChainsaw::NFA::ACTIONS;
 
 sub ORIG_find_single_epsilon_states(@states) is export {
   my @remap;

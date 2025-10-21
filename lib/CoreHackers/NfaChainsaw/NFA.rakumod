@@ -1,6 +1,10 @@
 unit module CoreHackers::NfaChainsaw::NFA;
 
-sub recursive-hllize(Mu $in) {
+use nqp;
+
+use JSON::Fast;
+
+sub recursive-hllize(Mu $in) is export {
   my $h = nqp::hllize($in);
   if $h ~~ Positional {
     my @result = do recursive-hllize($_).item for @$h;

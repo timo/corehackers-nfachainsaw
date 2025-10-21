@@ -1,0 +1,67 @@
+use Test;
+use Test::Output;
+
+use JSON::Fast;
+
+use CoreHackers::NfaChainsaw::Utils::UserInterface;
+use CoreHackers::NfaChainsaw::NfaRunner;
+use CoreHackers::NfaChainsaw::Optimizer;
+use CoreHackers::NfaChainsaw::Extractor;
+use CoreHackers::NfaChainsaw::NFA;
+
+grammar Example {
+    regex letter {
+        "A" | <[B..F]> | "G" | "foobar" | <-[0123456789]>
+    }
+    regex manyletters {
+        <letter> ** 1..2 | <letter> ** 5..7
+    }
+}
+
+my @*OPT_VARIANTS = <original steal_from_start_early steal_from_start_late>;
+
+for <letter manyletters> -> $name {
+    subtest "NFA(s) of regex $name.raku()", {
+        my @*all-nfas;
+        my $*DEBUG_VERBOSE = 0;
+
+        stdout-from {
+            output-nfas-for-code(Example, $name, Example.^find_method($name))
+        };
+
+        ok @*all-nfas, "NFAs retrieved from Example grammar $name.raku()";
+
+        my $dump-output = stdout-from { mydump(@*all-nfas[0].states) };
+        like $dump-output, / CODEPOINT /, "dumping the NFA gives us at least a CODEPOINT";
+        like $dump-output, / "CHARLIST_NEG 0123456789" /, "dumping the NFA gives us a CHARLIST_NEG with 0123456789";
+
+        ok from-json(stateslist-to-json(@*all-nfas[0].states)).elems > 5, "turning nfa into json gives us an array with some elements";
+
+        my NFASimState $simstate .= start(@*all-nfas[0].states, :text("AG"));
+
+        is $simstate.offset, 0, "offset of simstate is 0 at start";
+
+        my @active-edges;
+        no-output { @active-edges = $simstate.all-active-edges }, "all-active-edges is quiet";
+        cmp-ok @active-edges, "~~", 5..*, "there are at least 5 active edges in the state";
+
+        my %splitpoints;
+        @active-edges.map({ split-apart %splitpoints, $_.value });
+        my @spk = %splitpoints.keys.sort;
+        cmp-ok @spk, "(>)", ("A", "G").Set, "determined splitpoints for the initial state contains A and G";
+
+        todo "have to figure out if numbers instead of characters make it into the result here";
+        cmp-ok @spk.all.chars, "==", 1, "split point keys are all one character long";
+
+        todo "make output from NFASimState.step more configurable";
+        no-output { $simstate .= step; }, "NFASimState is quiet";
+
+        is $simstate.offset, 1, "offset of simstate is 1 after one step";
+
+        todo "make output from NFASimState.step more configurable";
+        no-output { $simstate .= step; }, "NFASimState is quiet";
+        is $simstate.offset, 2, "offset of simstate is 2 after two steps";
+    };
+}
+
+done-testing;

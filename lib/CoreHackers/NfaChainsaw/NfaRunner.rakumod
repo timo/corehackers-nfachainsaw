@@ -1,7 +1,11 @@
-use nqp;
-
 unit module CoreHackers::NfaChainsaw::NfaRunner;
 
+use nqp;
+
+use CoreHackers::NfaChainsaw::NFA;
+
+my $ACTIONS := $CoreHackers::NfaChainsaw::NFA::ACTIONS;
+my %cclass_names := %CoreHackers::NfaChainsaw::NFA::cclass_names;
 
 sub is-edge-negated($masked-act) {
     return so $masked-act == any(
@@ -78,25 +82,25 @@ sub does-edge-match($edge, $character) {
     return $result;
 }
 
-class CClass is rw {
+class CClass is rw is export {
     has $.cclass_id;
     has $.negated;
 }
-class CRange is rw {
+class CRange is rw is export {
     has $.lower;
     has $.upper;
     has $.negated;
 }
 # also covers single characters because why not
-class CharList is rw {
+class CharList is rw is export {
     has $.chars;
     has $.negated;
 }
-class Anything is rw {
+class Anything is rw is export {
     has $.negated;
 }
 
-sub generate-possible-matching-characters($edge) {
+sub generate-possible-matching-characters($edge) is export {
     my $masked_act = $edge[0] +& 0xff;
     my $negated = is-edge-negated($masked_act);
     my $actname = $ACTIONS[$masked_act];
@@ -151,7 +155,7 @@ sub generate-possible-matching-characters($edge) {
     return $result;
 }
 
-sub split-apart(%splitpoints, $new-edge) {
+sub split-apart(%splitpoints, $new-edge) is export {
     my $new = generate-possible-matching-characters($new-edge);
 
     if $new ~~ CRange {
